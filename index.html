@@ -49,7 +49,6 @@
         #dock { min-height: 150px; background: #252525; border-top: 2px solid #444; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; z-index: 1000; gap: 15px; }
         .upload-group { display: flex; gap: 12px; align-items: center; }
         
-        /* 优化：上传框选中态 */
         .drop-box { 
             position: relative; width: 180px; height: 120px; border: 2px dashed #555; border-radius: 12px; 
             display: flex; flex-direction: column; align-items: center; justify-content: center; 
@@ -82,7 +81,6 @@
         .sub-btn { background: transparent; color: #777; font-size: 11px; padding: 5px 8px; border-radius: 4px; }
         .sub-btn.selected { color: white; background: #555; }
 
-        /* 颜色选中态 */
         .color-wrapper { position: relative; display: flex; align-items: center; justify-content: center; width: 20px; height: 30px; }
         .color-dot { width: 14px; height: 14px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,0.5); z-index: 2; }
         .color-dot.active::after {
@@ -386,7 +384,7 @@
         this.innerText = !isDiff ? "取消找茬" : "开始找茬"; 
     };
 
-    // 修复：针对 contain 模式偏移的导出逻辑
+    // 修复：针对导出逻辑，增加对设计稿遮罩（橡皮擦）的支持
     document.getElementById('export-btn').onclick = () => {
         if (!gameImg.naturalWidth && !psImg.naturalWidth) return;
         
@@ -396,22 +394,39 @@
         out.width = w; out.height = h; 
         const octx = out.getContext('2d');
 
-        // 绘制底层
-        if(gameImg.src) octx.drawImage(gameImg, 0, 0, w, h);
+        // 1. 绘制底层（线上截图）
+        if(gameImg.src && gameImg.naturalWidth > 0) {
+            octx.drawImage(gameImg, 0, 0, w, h);
+        }
 
-        // 绘制设计稿层（处理透明度和混合模式）
-        if(psImg.src) {
+        // 2. 绘制设计稿层（带橡皮擦遮罩效果）
+        if(psImg.src && psImg.naturalWidth > 0) {
             octx.save();
+            
+            // 创建一个临时画布来合成“被擦除后的设计稿”
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = w; tempCanvas.height = h;
+            const tctx = tempCanvas.getContext('2d');
+            
+            // A. 先画完整的设计稿
+            tctx.drawImage(psImg, 0, 0, w, h);
+            
+            // B. 使用 mGen (遮罩画布) 进行擦除
+            // destination-in 表示只保留与 mGen 像素重叠的部分
+            tctx.globalCompositeOperation = 'destination-in';
+            tctx.drawImage(mGen, 0, 0, w, h);
+            
+            // C. 将处理好的设计稿应用透明度和混合模式后画到主输出
             octx.globalAlpha = psSlider.value;
             if(psImg.style.mixBlendMode === 'difference') {
                 octx.globalCompositeOperation = 'difference';
             }
-            octx.drawImage(psImg, 0, 0, w, h);
+            octx.drawImage(tempCanvas, 0, 0, w, h);
+            
             octx.restore();
         }
 
-        // 绘制红点对比层和标注层
-        // 由于 Canvas 的尺寸已经跟图片 natural 尺寸同步，直接 0,0 绘制即可
+        // 3. 绘制红点对比层和标注层
         octx.drawImage(mCan, 0, 0);
         octx.drawImage(aCan, 0, 0);
 
