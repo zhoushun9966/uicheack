@@ -1,443 +1,3431 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <title>UI跑查工具-交互完善版</title>
-    <style>
-        body { margin: 0; background: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        #viewport { flex: 7; position: relative; background: #000; margin: 10px; border: 1px solid #333; overflow: hidden; }
-        
-        /* 指针状态保持 */
-        .cursor-arrow { cursor: crosshair !important; }
-        .cursor-text { cursor: text !important; }
-        .cursor-eraser { cursor: none !important; }
-        .cursor-grab { cursor: move !important; } 
-
-        .img-layer, .cvs-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
-        #ps-layer { z-index: 2; opacity: 0.5; pointer-events: none; }
-        #game-layer { z-index: 1; opacity: 1; pointer-events: none; }
-        #mark-canvas { z-index: 3; display: none; pointer-events: none; }
-        #anno-canvas { z-index: 4; pointer-events: none; }
-
-        #empty-guide {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 100; pointer-events: none; transition: opacity 0.5s;
-        }
-        .guide-text {
-            font-size: 24px; color: #888; letter-spacing: 2px;
-            background: rgba(0,0,0,0.4); padding: 20px 40px; border-radius: 50px;
-            border: 1px solid #444; margin-bottom: 20px;
-        }
-        .guide-arrow {
-            position: absolute; bottom: 40px; left: 100px;
-            font-size: 60px; color: #007AFF;
-            animation: point-down 1.5s infinite ease-in-out;
-        }
-        @keyframes point-down {
-            0%, 100% { transform: translateY(0) rotate(135deg); opacity: 0.5; }
-            50% { transform: translateY(20px) rotate(135deg); opacity: 1; }
-        }
-
-        #eraser-circle {
-            position: fixed; width: 60px; height: 60px; border: 2px solid rgba(255, 255, 255, 0.9);
-            background: rgba(255, 255, 255, 0.1); border-radius: 50%; pointer-events: none;
-            z-index: 9999; display: none; transform: translate(-50%, -50%);
-            box-shadow: 0 0 4px rgba(0,0,0,0.8);
-        }
-
-        #dock { min-height: 150px; background: #252525; border-top: 2px solid #444; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; z-index: 1000; gap: 15px; }
-        .upload-group { display: flex; gap: 12px; align-items: center; }
-        
-        .drop-box { 
-            position: relative; width: 180px; height: 120px; border: 2px dashed #555; border-radius: 12px; 
-            display: flex; flex-direction: column; align-items: center; justify-content: center; 
-            cursor: pointer; background: #2a2a2a; overflow: hidden; outline: none; transition: all 0.2s ease;
-        }
-        .drop-box:focus {
-            border: 2px solid #007AFF;
-            box-shadow: 0 0 12px rgba(0, 122, 255, 0.5);
-            background: #2f2f2f;
-        }
-        .drop-box.drag-over { border-color: #007AFF; background: #333; transform: scale(1.02); }
-
-        .drop-box img { width: 100%; height: 100%; object-fit: cover; display: none; }
-        .drop-box span { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.6); font-size: 12px; color: #eee; text-align: center; padding: 4px 0; z-index: 5; }
-        .close-btn { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; background: #ff4757; color: white; border-radius: 50%; border: none; cursor: pointer; display: none; align-items: center; justify-content: center; font-size: 14px; z-index: 10; }
-
-        .tools-center { display: flex; align-items: center; gap: 10px; background: #333; padding: 12px 20px; border-radius: 16px; }
-        .v-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-        label { font-size: 10px; color: #aaa; white-space: nowrap; }
-        input[type=range] { width: 70px; cursor: pointer; }
-        button { cursor: pointer; padding: 8px 14px; border-radius: 6px; border: none; background: #4a4a4a; color: white; font-size: 12px; font-weight: bold; white-space: nowrap; transition: all 0.2s ease; }
-        
-        #ai-run-btn { background: #ff4757; width: 110px; }
-        #ai-run-btn.active { background: #ff7875; } 
-        #mode-btn { background: #007AFF; }
-        #mode-btn.active { background: #70a1ff; } 
-        
-        .comp-group { display: flex; align-items: center; background: #222; padding: 4px; border-radius: 8px; gap: 6px; border: 2px solid transparent; transition: all 0.2s ease; }
-        .comp-group.active { border-color: #007AFF; box-shadow: 0 0 8px rgba(0, 122, 255, 0.3); }
-        .sub-btn { background: transparent; color: #777; font-size: 11px; padding: 5px 8px; border-radius: 4px; }
-        .sub-btn.selected { color: white; background: #555; }
-
-        .color-wrapper { position: relative; display: flex; align-items: center; justify-content: center; width: 20px; height: 30px; }
-        .color-dot { width: 14px; height: 14px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,0.5); z-index: 2; }
-        .color-dot.active::after {
-            content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-            width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent;
-            border-bottom: 6px solid currentColor;
-        }
-
-        .tools-right { display: flex; align-items: center; gap: 8px; }
-        #undo-btn { background: #555; }
-        #reset-initial-btn { background: #e67e22; }
-        #reload-btn { background: #111; border: 1px solid #444; }
-        #export-btn { background: #00b894; padding: 8px 18px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UI跑查对比工具 v2.0</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2a;color:#e0e0f0;font-family:'Segoe UI',system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:13px}
+#topbar{height:44px;background:#12121e;border-bottom:1px solid #2a2a3a;display:flex;align-items:center;padding:0 12px;gap:10px;flex-shrink:0;z-index:100;position:relative}
+#topbar .brand{font-size:15px;font-weight:700;color:#e0e0f0;white-space:nowrap}
+#topbar .version-badge{background:#007AFF22;color:#007AFF;border:1px solid #007AFF55;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600}
+.help-btn{width:24px;height:24px;border-radius:50%;background:#2a2a3a;border:1px solid #3a3a4a;color:#aaa;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.help-btn:hover{background:#3a3a4a;color:#e0e0f0}
+.spacer{flex:1}
+.clear-btn{background:#2a2a3a;border:1px solid #3a3a4a;color:#ccc;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:12px}
+.clear-btn:hover{background:#3a3a4a;color:#ff4757}
+.export-split{display:flex;border-radius:5px;overflow:hidden;border:1px solid #007AFF}
+.export-split .export-main{background:#007AFF;color:#fff;border:none;padding:5px 12px;cursor:pointer;font-size:12px;white-space:nowrap}
+.export-split .export-main:hover{background:#0066dd}
+.export-split .export-arrow{background:#0055cc;color:#fff;border:none;border-left:1px solid #005acc;padding:5px 8px;cursor:pointer;font-size:11px}
+.export-split .export-arrow:hover{background:#004ab8}
+.export-dropdown{position:absolute;top:44px;right:12px;background:#1e1e2e;border:1px solid #2a2a3a;border-radius:6px;box-shadow:0 8px 24px #00000088;z-index:999;min-width:180px;display:none}
+.export-dropdown.open{display:block}
+.export-dropdown button{display:block;width:100%;background:none;border:none;color:#e0e0f0;padding:9px 14px;text-align:left;cursor:pointer;font-size:12px}
+.export-dropdown button:hover{background:#2a2a3a}
+#main-row{flex:1;display:flex;overflow:hidden;position:relative}
+#sidebar{width:52px;background:#12121e;border-right:1px solid #2a2a3a;display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:2px;flex-shrink:0;z-index:50;overflow-y:auto;overflow-x:hidden}
+#sidebar::-webkit-scrollbar{width:0}
+.sec-label{font-size:9px;color:#555;letter-spacing:.5px;margin:4px 0 2px;width:100%;text-align:center}
+.sb-btn{width:42px;height:38px;background:none;border:1px solid transparent;border-radius:5px;color:#888;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:15px;transition:all .15s;flex-shrink:0}
+.sb-btn .sb-label{font-size:9px;color:#666}
+.sb-btn:hover{background:#2a2a3a;border-color:#3a3a4a;color:#e0e0f0}
+.sb-btn:hover .sb-label{color:#aaa}
+.sb-btn.active{background:#007AFF22;border-color:#007AFF55;color:#007AFF}
+.sb-btn.active .sb-label{color:#007AFF}
+.sb-divider{width:36px;height:1px;background:#2a2a3a;margin:4px 0;flex-shrink:0}
+.sb-spacer{flex:1}
+#prop-panel{width:0;background:#0d0d1d;border-right:1px solid #2a2a3a;overflow:hidden;transition:width .2s;flex-shrink:0;display:flex;flex-direction:column}
+#prop-panel.open{width:162px}
+#prop-inner{padding:10px 8px;display:flex;flex-direction:column;gap:8px;width:162px}
+.prop-title{font-size:10px;color:#555;letter-spacing:.5px;text-transform:uppercase;padding-bottom:4px;border-bottom:1px solid #1e1e2e}
+.prop-section{display:flex;flex-direction:column;gap:4px}
+.prop-label{font-size:10px;color:#888}
+.cp-row{display:flex;flex-wrap:wrap;gap:4px}
+.cp-dot{width:18px;height:18px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color .1s;flex-shrink:0}
+.cp-dot.active{border-color:#fff}
+.prop-slider{width:100%;accent-color:#007AFF;cursor:pointer}
+.toggle-row{display:flex;gap:4px}
+.tog-btn{flex:1;padding:3px 0;background:#1e1e2e;border:1px solid #2a2a3a;border-radius:4px;color:#888;cursor:pointer;font-size:11px;text-align:center}
+.tog-btn.active{background:#007AFF22;border-color:#007AFF55;color:#007AFF}
+#viewport{flex:1;background:#1a1a2a;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+#viewport.bw-bg{background:#ffffff}
+#layers{position:relative;display:none}
+#layers canvas,#layers img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain}
+#game-layer{position:relative!important;display:block}
+#anno-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+#click-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:auto;cursor:default;z-index:11}
+#split-canvas{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:100%;max-height:100%}
+#empty-guide{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#444;pointer-events:none;line-height:2}
+.eg-icon{font-size:36px;margin-bottom:8px}
+.eg-text{font-size:13px}
+#text-input-overlay{display:none;position:absolute;background:transparent;border:none;outline:2px dashed #ffeb3b;resize:none;color:#ffeb3b;font-size:16px;min-width:80px;min-height:24px;z-index:200;padding:2px 4px;line-height:1.4}
+#eraser-circle{display:none;position:fixed;border:2px solid #ff4757;border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%)}
+.canvas-tooltip{position:absolute;background:#12121e;border:1px solid #2a2a3a;border-radius:4px;padding:4px 8px;font-size:11px;color:#e0e0f0;pointer-events:none;z-index:300;white-space:nowrap;display:none}
+#report-panel{width:300px;background:#0d0d1d;border-left:1px solid #2a2a3a;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;resize:horizontal;min-width:200px;max-width:500px}
+.rp-header{padding:8px 12px;border-bottom:1px solid #1e1e2e;font-size:12px;font-weight:600;color:#aaa;flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
+.rp-exit-btn{background:#ff475722;border:1px solid #ff475744;color:#ff4757;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;display:none}
+.rp-exit-btn:hover{background:#ff475744}
+#report-scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:8px}
+#report-scroll::-webkit-scrollbar{width:4px}
+#report-scroll::-webkit-scrollbar-track{background:#0d0d1d}
+#report-scroll::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:2px}
+.rp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#444;text-align:center;gap:8px;padding:20px}
+.ep-icon{font-size:32px}
+.ep-text{font-size:12px;line-height:1.6}
+.rp-metric{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1a1a2a}
+.rp-metric-label{font-size:11px;color:#888}
+.rp-metric-value{font-size:12px;font-weight:600}
+.metric-good{color:#4ecca3}
+.metric-warn{color:#ffc107}
+.metric-bad{color:#ff4757}
+.rp-section-title{font-size:11px;color:#555;letter-spacing:.5px;margin:10px 0 5px;text-transform:uppercase}
+.ai-config-bar{background:#12121e;border:1px solid #1e1e2e;border-radius:6px;padding:8px;margin-bottom:8px;font-size:11px}
+.ai-bar-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.ai-status-dot{width:8px;height:8px;border-radius:50%;background:#555;flex-shrink:0}
+.ai-status-dot.ok{background:#4ecca3}
+.ai-status-dot.err{background:#ff4757}
+.ai-status-dot.loading{background:#ffc107;animation:pulse .8s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.ai-config-btn{background:#1e1e2e;border:1px solid #2a2a3a;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px}
+.ai-config-btn:hover{color:#e0e0f0}
+.region-filter{display:flex;gap:4px;flex-wrap:wrap;margin:5px 0}
+.rf-btn{padding:2px 8px;border-radius:3px;background:#1e1e2e;border:1px solid #2a2a3a;color:#888;cursor:pointer;font-size:10px}
+.rf-btn.active{background:#007AFF22;border-color:#007AFF55;color:#007AFF}
+.region-card{background:#12121e;border:1px solid #1e1e2e;border-radius:5px;padding:7px 9px;margin-bottom:5px;cursor:pointer;transition:border-color .15s}
+.region-card:hover{border-color:#2a2a3a}
+.region-card.selected{border-color:#007AFF55}
+.rc-head{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.rc-num{font-size:10px;color:#555;font-weight:600}
+.rc-tag{font-size:10px;padding:1px 5px;border-radius:3px;font-weight:600}
+.tag-layout{background:#007AFF22;color:#007AFF}
+.tag-color{background:#a29bfe22;color:#a29bfe}
+.tag-missing{background:#ff475722;color:#ff4757}
+.tag-offset{background:#ffc10722;color:#ffc107}
+.tag-size{background:#00b89422;color:#00b894}
+.tag-unknown{background:#2a2a3a;color:#888}
+.rc-desc{font-size:11px;color:#aaa;line-height:1.4}
+.rc-coords{font-size:10px;color:#555;margin-top:2px}
+.size-compare-bar{display:flex;align-items:center;gap:6px;margin:4px 0}
+.scb-label{font-size:10px;color:#888;width:30px;flex-shrink:0}
+.scb-bar-wrap{flex:1;height:6px;background:#1e1e2e;border-radius:3px;overflow:hidden}
+.scb-bar{height:100%;border-radius:3px;background:#007AFF}
+.scb-val{font-size:10px;color:#aaa;width:60px;text-align:right;flex-shrink:0}
+#bottombar{height:74px;background:#12121e;border-top:1px solid #2a2a3a;display:flex;align-items:center;padding:0 10px;gap:8px;flex-shrink:0}
+.bb-left{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.upload-box{width:58px;height:52px;border:2px dashed #2a2a3a;border-radius:6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;flex-shrink:0;transition:border-color .2s;background:#12121e}
+.upload-box:hover{border-color:#007AFF55}
+.upload-box.loaded{border-color:#4ecca355;border-style:solid}
+.upload-box .ub-label{font-size:9px;color:#555;margin-top:2px;pointer-events:none}
+.upload-box .ub-icon{font-size:18px;color:#444;pointer-events:none}
+.upload-box img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;border-radius:4px;display:none}
+.upload-box .ub-close{position:absolute;top:1px;right:1px;width:14px;height:14px;background:#ff4757;border-radius:50%;display:none;align-items:center;justify-content:center;font-size:9px;color:#fff;cursor:pointer;z-index:10}
+.upload-box.loaded .ub-close{display:flex}
+.upload-box.loaded img{display:none}
+.bb-slider-wrap{display:flex;flex-direction:column;gap:2px}
+.bb-slider-label{font-size:10px;color:#666}
+.bb-slider{width:80px;accent-color:#007AFF}
+.bb-center{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
+.thresh-wrap{display:flex;align-items:center;gap:5px}
+.thresh-label{font-size:10px;color:#666;white-space:nowrap}
+.thresh-slider{width:90px;accent-color:#ffc107}
+.thresh-val{font-size:10px;color:#ffc107;width:24px}
+.btn-compare{background:#4ecca3;color:#0d0d1d;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700}
+.btn-compare:hover{background:#3dba92}
+.btn-compare:disabled{background:#2a2a3a;color:#555;cursor:not-allowed}
+.btn-diag{background:#1e1e2e;border:1px solid #2a2a3a;color:#aaa;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+.btn-diag:hover{background:#2a2a3a;color:#e0e0f0}
+.btn-diag.active{background:rgba(0,122,255,.18);border-color:#007AFF;color:#4a9eff}
+.bb-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.bb-mode-btn{background:#1e1e2e;border:1px solid #2a2a3a;color:#aaa;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:11px;white-space:nowrap}
+.bb-mode-btn:hover{background:#2a2a3a;color:#e0e0f0}
+.bb-mode-btn.active{background:#007AFF22;border-color:#007AFF55;color:#007AFF}
+.bb-mode-btn:disabled{opacity:0.35;cursor:not-allowed}
+.rp-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.ep-diag-btn{margin-top:8px;background:#1e1e2e;border:1px solid #2a2a3a;color:#aaa;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:12px}
+.ep-diag-btn:hover{background:#2a2a3a;color:#e0e0f0}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#00000088;z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-box{background:#1e1e2e;border:1px solid #2a2a3a;border-radius:10px;padding:20px;min-width:320px;max-width:480px;max-height:80vh;overflow-y:auto;position:relative}
+.modal-title{font-size:15px;font-weight:700;margin-bottom:14px;color:#e0e0f0}
+.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;line-height:1}
+.modal-close:hover{color:#e0e0f0}
+.modal-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #2a2a3a}
+.modal-row:last-child{border-bottom:none}
+.modal-row-label{font-size:13px;color:#ccc}
+.toggle-switch{display:flex;gap:4px}
+.ts-btn{padding:4px 12px;border-radius:4px;border:1px solid #2a2a3a;background:#12121e;color:#888;cursor:pointer;font-size:12px}
+.ts-btn.active{background:#007AFF;border-color:#007AFF;color:#fff}
+.help-section{margin-bottom:12px}
+.help-section h3{font-size:12px;color:#007AFF;margin-bottom:5px;font-weight:600}
+.help-section p,.help-section li{font-size:12px;color:#aaa;line-height:1.7}
+.help-section ul{padding-left:16px}
+.form-row{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}
+.form-label{font-size:11px;color:#888}
+.form-input{background:#12121e;border:1px solid #2a2a3a;border-radius:4px;color:#e0e0f0;padding:6px 8px;font-size:12px;width:100%}
+.form-input:focus{outline:none;border-color:#007AFF55}
+.form-btn{background:#007AFF;color:#fff;border:none;padding:7px 14px;border-radius:5px;cursor:pointer;font-size:12px}
+.form-btn:hover{background:#0066dd}
+.form-btn-ghost{background:#1e1e2e;border:1px solid #2a2a3a;color:#aaa;padding:7px 14px;border-radius:5px;cursor:pointer;font-size:12px}
+#zoom-info{position:absolute;bottom:8px;right:8px;background:#12121e99;border:1px solid #2a2a3a;border-radius:4px;padding:2px 8px;font-size:10px;color:#888;pointer-events:auto;display:flex;align-items:center;gap:4px;z-index:55}
+#zoom-info .zoom-btn{background:none;border:1px solid #444;color:#aaa;width:18px;height:18px;border-radius:3px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;padding:0}
+#zoom-info .zoom-btn:hover{background:#333;color:#fff}
+.ai-result-box{background:#12121e;border:1px solid #1e1e2e;border-radius:5px;padding:8px;font-size:11px;color:#ccc;line-height:1.6;margin-top:5px;white-space:pre-wrap}
+.ai-loading{color:#ffc107;font-style:italic}
+/* Viewport upload zones */
+#upload-guide{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:6px;padding:10px;align-items:stretch;z-index:5}
+.vp-upload-zone{flex:1;border:2px dashed #2a2a3a;border-radius:12px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;background:#12121e88}
+.vp-upload-zone:hover,.vp-upload-zone.drag-over{border-color:#007AFF88;background:#007AFF0d;box-shadow:inset 0 0 20px #007AFF11}
+.vp-upload-zone.paste-target{border-color:#4ecca3;background:#4ecca30d;box-shadow:inset 0 0 20px #4ecca311}
+.vp-upload-zone.paste-target .vz-label::after{content:' (Ctrl+V)';font-size:10px;color:#4ecca3}
+.vp-upload-zone.loaded{border-color:#4ecca355;border-style:solid}
+.vz-preview{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;display:none}
+.vp-upload-zone.loaded .vz-preview{display:block}
+.vz-upload-content{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none;z-index:1;text-align:center}
+.vp-upload-zone.loaded .vz-upload-content{top:8px;left:10px;transform:none;background:rgba(0,0,0,0.55);padding:4px 10px;border-radius:4px;flex-direction:row;gap:4px;align-items:center}
+.vp-upload-zone.loaded .vz-icon,.vp-upload-zone.loaded .vz-hint{display:none}
+.vp-upload-zone.loaded .vz-label{font-size:12px;font-weight:600;color:#fff}
+.vz-icon{font-size:42px;color:#444}
+.vz-label{font-size:14px;font-weight:600;color:#555}
+.vz-hint{font-size:11px;color:#3a3a4a;line-height:1.7}
+.vz-import-btn{pointer-events:auto;background:#007AFF;color:#fff;border:none;border-radius:5px;padding:6px 16px;font-size:12px;font-weight:600;cursor:pointer;margin-top:4px;transition:background .15s}
+.vz-import-btn:hover{background:#0056d6}
+.vp-upload-zone.loaded .vz-import-btn{display:none}
+/* Grid view */
+#grid-container{display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#1a1a2a;overflow:hidden;box-sizing:border-box}
+#grid-container.active{display:block}
+#grid-inner{width:100%;height:100%;display:grid;gap:4px;padding:4px;transform-origin:0 0;box-sizing:border-box}
+.grid-panel{position:relative;background:#0d0d1d;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0}
+.grid-panel-label{position:absolute;top:6px;left:8px;font-size:10px;color:#ddd;background:#00000099;padding:2px 8px;border-radius:3px;pointer-events:none;z-index:2;letter-spacing:.5px}
+.grid-panel canvas{max-width:100%;max-height:100%;display:block}
+#grid-anno-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:20;cursor:crosshair}
+/* ===== NEW v3 STYLES ===== */
+/* Start compare CTA button */
+#btn-start-compare{background:#4ecca3;color:#0d0d1d;border:none;padding:9px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;white-space:nowrap;transition:all .2s;box-shadow:0 2px 12px #4ecca355}
+#btn-start-compare:hover{background:#3dba92;box-shadow:0 2px 16px #4ecca388}
+#btn-start-compare:disabled{background:#2a2a3a;color:#555;cursor:not-allowed;box-shadow:none}
+#btn-start-compare.active{background:#ff4757;color:#fff;box-shadow:0 2px 12px #ff475755}
+#btn-start-compare.active:hover{background:#e83f4e}
+/* Sensitivity pills */
+#sensitivity-pills{display:none;align-items:center;gap:4px}
+#sensitivity-pills .sp-label{font-size:10px;color:#666;white-space:nowrap}
+.sens-pill{padding:4px 9px;border-radius:4px;border:1px solid #2a2a3a;background:#12121e;color:#777;cursor:pointer;font-size:11px;transition:all .15s}
+.sens-pill:hover{border-color:#007AFF55;color:#aaa}
+.sens-pill.active{background:#007AFF22;border-color:#007AFF88;color:#007AFF;font-weight:600}
+/* Right-side mode buttons */
+.bb-mode-btn:disabled{opacity:0.3;cursor:not-allowed;pointer-events:none}
+/* QA tag library */
+#qa-panel{border-bottom:1px solid #1e1e2e;flex:1;display:flex;flex-direction:column;overflow:hidden}
+.qa-header{padding:8px 12px 6px;font-size:12px;font-weight:600;color:#aaa;flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
+.qa-header-title{display:flex;align-items:center;gap:6px}
+.qa-toggle{font-size:10px;color:#555;cursor:pointer;padding:2px 6px;border-radius:3px;background:#1e1e2e;border:1px solid #2a2a3a}
+.qa-toggle:hover{color:#aaa}
+#qa-scroll{overflow-y:auto;padding:0 8px 8px;flex:1;min-height:0}
+#qa-scroll::-webkit-scrollbar{width:3px}
+#qa-scroll::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:2px}
+.qa-category{margin-bottom:6px}
+.qa-cat-label{font-size:9px;color:#555;letter-spacing:.6px;text-transform:uppercase;margin-bottom:3px;padding:0 2px}
+.qa-tags-row{display:flex;flex-wrap:wrap;gap:4px}
+.qa-tag{padding:5px 12px;border-radius:4px;font-size:12px;font-weight:600;cursor:grab;border:1px solid transparent;transition:all .15s;user-select:none}
+.qa-tag:hover{opacity:.85;transform:scale(1.04)}
+.qa-tag:active{cursor:grabbing}
+.qa-tag.cat-layout{background:#007AFF22;color:#007AFF;border-color:#007AFF44}
+.qa-tag.cat-size{background:#00b89422;color:#00b894;border-color:#00b89444}
+.qa-tag.cat-color{background:#a29bfe22;color:#a29bfe;border-color:#a29bfe44}
+.qa-tag.cat-text{background:#ffc10722;color:#ffc107;border-color:#ffc10744}
+.qa-tag.cat-asset{background:#fd79a822;color:#fd79a8;border-color:#fd79a844}
+.qa-tag.disabled{opacity:.35;pointer-events:none;cursor:default;filter:grayscale(.6)}
+.qa-footer{padding:8px 10px;border-top:1px solid #1e1e2e;flex-shrink:0}
+.qa-diag-btn{width:100%;background:#1e1e2e;border:1px solid #2a2a3a;color:#aaa;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:12px;transition:all .15s}
+.qa-diag-btn:hover{background:#2a2a3a;color:#e0e0f0}
+.qa-diag-btn.active{background:#007AFF22;border-color:#007AFF;color:#4a9eff}
+.qa-diag-btn:disabled{opacity:.35;cursor:not-allowed}
+/* Canvas labels (dropped QA tags) */
+.canvas-label{position:absolute;display:flex;align-items:center;gap:5px;padding:6px 12px 6px 8px;border-radius:6px;font-size:14px;font-weight:600;cursor:move;user-select:none;box-shadow:0 2px 10px #000000aa;z-index:50;pointer-events:auto;max-width:280px;border:1px solid transparent;backdrop-filter:blur(4px)}
+.canvas-label .cl-delete{width:16px;height:16px;border-radius:50%;background:#ff475788;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity .15s}
+.canvas-label:hover .cl-delete{opacity:1}
+.canvas-label .cl-text{outline:none;background:transparent;border:none;color:inherit;font-size:inherit;font-weight:inherit;min-width:20px;cursor:text;text-shadow:0 1px 3px rgba(0,0,0,0.5)}
+.cl-target-dot{position:absolute;width:10px;height:10px;background:#ffffffcc;border:2px solid #fff;border-radius:50%;cursor:move;z-index:52;pointer-events:auto;box-shadow:0 0 6px #00000088;transition:background .15s}
+.cl-target-dot:hover{background:#ff4757;border-color:#ff4757}
+.cl-shape-anchor{position:absolute;width:10px;height:10px;background:#fff;border:2px solid #007AFF;border-radius:2px;cursor:nwse-resize;z-index:53;pointer-events:auto;box-shadow:0 0 4px #00000066}
+.cl-shape-anchor:hover{background:#007AFF;border-color:#fff}
+/* Export modal */
+.export-modal{position:absolute;top:44px;right:12px;background:#1e1e2e;border:1px solid #2a2a3a;border-radius:8px;box-shadow:0 8px 24px #00000088;z-index:999;min-width:210px;display:none;padding:12px}
+.export-modal.open{display:block}
+.export-modal-title{font-size:11px;color:#666;margin-bottom:10px;letter-spacing:.4px}
+.export-toggle-row{display:flex;background:#12121e;border-radius:5px;padding:2px;margin-bottom:10px;gap:2px}
+.export-toggle-btn{flex:1;padding:4px;border:none;background:transparent;color:#888;border-radius:4px;cursor:pointer;font-size:11px;transition:all .15s}
+.export-toggle-btn.active{background:#007AFF;color:#fff}
+.export-check-row{display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer}
+.export-check-row:hover{opacity:.85}
+.export-check-row input[type=checkbox]{accent-color:#007AFF;width:14px;height:14px;cursor:pointer}
+.export-check-label{font-size:12px;color:#ccc;flex:1}
+.export-check-label.disabled{color:#444}
+.export-confirm-btn{width:100%;background:#007AFF;color:#fff;border:none;padding:7px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:10px;transition:background .15s}
+.export-confirm-btn:hover{background:#0066dd}
+/* Diagnostic button in report panel */
+.rp-diag-btn{background:#1e1e2e;border:1px solid #2a2a3a;color:#aaa;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:11px;width:100%;margin-top:10px;transition:all .15s}
+.rp-diag-btn:hover{background:#2a2a3a;color:#e0e0f0}
+.rp-diag-btn.active{background:#007AFF22;border-color:#007AFF;color:#4a9eff}
+/* CTA pulse animation when both images loaded */
+@keyframes cta-pulse{0%,100%{box-shadow:0 2px 12px #4ecca355}50%{box-shadow:0 2px 24px #4ecca3aa,0 0 0 4px #4ecca322}}
+#btn-start-compare.cta-ready:not(.active){animation:cta-pulse 2s ease-in-out infinite}
+</style>
 </head>
 <body>
 
-<div id="eraser-circle"></div>
-<div id="viewport">
-    <div id="empty-guide">
-        <div class="guide-text">请将线上截图/设计稿拖入/粘贴至左下角</div>
-        <div class="guide-arrow">➔</div>
+<div id="topbar">
+  <span class="brand">🔍 UI跑查对比工具</span>
+  <span class="version-badge">v2.0</span>
+  <button class="help-btn" onclick="openModal('modal-help')">?</button>
+  <div class="spacer"></div>
+  <button class="clear-btn" onclick="clearAll()">清空</button>
+  <div style="position:relative">
+    <div class="export-split">
+      <button class="export-main" onclick="toggleExportDropdown()">⬇ 导出报告</button>
+      <button class="export-arrow" onclick="toggleExportDropdown()">▼</button>
     </div>
-    <img id="game-layer" class="img-layer">
-    <img id="ps-layer" class="img-layer">
-    <canvas id="mark-canvas" class="cvs-layer"></canvas>
-    <canvas id="anno-canvas" class="cvs-layer"></canvas>
-    <canvas id="mask-gen-canvas" style="display:none"></canvas>
+    <div class="export-modal" id="export-dropdown">
+      <div class="export-modal-title">选择导出内容</div>
+      <div class="export-toggle-row">
+        <button class="export-toggle-btn active" id="exp-merge-btn" onclick="setExportMode('merge')">合并导出</button>
+        <button class="export-toggle-btn" id="exp-split-btn" onclick="setExportMode('split')">分开导出</button>
+      </div>
+      <label class="export-check-row">
+        <input type="checkbox" id="exp-check-current" checked>
+        <span class="export-check-label">当前画面（含标注）</span>
+      </label>
+      <label class="export-check-row">
+        <input type="checkbox" id="exp-check-origin" checked>
+        <span class="export-check-label">原图（设计稿+游戏图）</span>
+      </label>
+      <button class="export-confirm-btn" onclick="doExport()">确认导出</button>
+    </div>
+  </div>
 </div>
 
-<div id="dock">
-    <div class="upload-group">
-        <div id="box-game" class="drop-box" tabindex="0">
-            <button class="close-btn" id="cls-game">×</button>
-            <span id="label-game">线上截图</span>
-            <img id="thumb-game">
-        </div>
-        <div id="box-ps" class="drop-box" tabindex="0">
-            <button class="close-btn" id="cls-ps">×</button>
-            <span id="label-ps">设计稿</span>
-            <img id="thumb-ps">
-        </div>
-    </div>
+<div id="main-row">
+  <div id="sidebar">
+    <div class="sec-label">标注</div>
+    <button class="sb-btn" id="tool-label" onclick="setTool('label')"><span>🏷</span><span class="sb-label">标注</span></button>
+    <button class="sb-btn" id="tool-brush" onclick="setTool('brush')"><span>✏</span><span class="sb-label">画笔</span></button>
+    <div class="sb-divider"></div>
+    <div class="sec-label">橡皮</div>
+    <button class="sb-btn" id="tool-e-mark" onclick="setTool('e-mark')"><span>⌫</span><span class="sb-label">抹提示</span></button>
+    <button class="sb-btn" id="tool-e-ps" onclick="setTool('e-ps')"><span>🎨</span><span class="sb-label">抹设稿</span></button>
+    <div class="sb-spacer"></div>
+    <button class="sb-btn" id="btn-undo" onclick="undo()"><span>↩</span><span class="sb-label">撤回</span></button>
+    <button class="sb-btn" id="btn-redo" onclick="redo()"><span>↪</span><span class="sb-label">重做</span></button>
+    <div class="sb-divider"></div>
+    <button class="sb-btn" onclick="openModal('modal-settings')"><span>⚙</span><span class="sb-label">设置</span></button>
+  </div>
 
-    <div class="tools-center">
-        <div class="v-box"><input type="range" id="slider-ps" min="0" max="1" step="0.01" value="0.5"><label>设计稿透明度</label></div>
-        <div class="v-box"><input type="range" id="threshold-slider" min="1" max="100" value="40"><label>灵敏度</label></div>
-        <div class="comp-group"><button id="ai-run-btn">对比不同</button><button id="mode-btn">开始找茬</button></div>
-        <div class="comp-group" id="g-eraser"><button id="btn-eraser">橡皮</button><button class="sub-btn selected" id="e-m">抹红点</button><button class="sub-btn" id="e-p">抹设计稿</button></div>
-        <div class="comp-group" id="g-anno"><button id="btn-anno">标注</button><button class="sub-btn selected" id="a-a">箭头</button><button class="sub-btn" id="a-t">文字</button>
-            <div class="color-wrapper">
-                <div id="col-yellow" class="color-dot active" style="background:#ffeb3b; color:#ffeb3b" onclick="setACol('#ffeb3b')"></div>
-            </div>
-            <div class="color-wrapper">
-                <div id="col-red" class="color-dot" style="background:#ff4757; color:#ff4757" onclick="setACol('#ff4757')"></div>
-            </div>
-        </div>
-    </div>
+  <div id="prop-panel"><div id="prop-inner"></div></div>
 
-    <div class="tools-right">
-        <button id="undo-btn">返回</button>
-        <button id="reset-initial-btn">全部撤回</button>
-        <button id="reload-btn" onclick="location.reload()">清空</button>
-        <button id="export-btn">导出报告</button>
+  <div id="viewport">
+    <div id="layers">
+      <img id="game-layer" src="" style="visibility:hidden;display:block;max-width:100%;max-height:calc(100vh - 118px)">
+      <img id="ps-layer" src="" style="opacity:0.5;visibility:hidden">
+      <canvas id="mark-canvas"></canvas>
     </div>
+    <canvas id="anno-canvas"></canvas>
+    <canvas id="click-canvas"></canvas>
+    <canvas id="split-canvas"></canvas>
+    <div id="upload-guide">
+      <div class="vp-upload-zone" id="vz-ps"
+           onclick="selectPasteTarget('ps')"
+           ondragover="vzDragOver(event,this)" ondragleave="vzDragLeave(this)" ondrop="vzDrop(event,'ps')">
+        <img class="vz-preview" id="vz-preview-ps" src="">
+        <div class="vz-upload-content">
+          <span class="vz-icon">🎨</span>
+          <span class="vz-label">设计稿</span>
+          <span class="vz-hint">点击选中 → Ctrl+V 粘贴<br>或直接拖入图片</span>
+          <button class="vz-import-btn" onclick="event.stopPropagation();triggerUpload('ps')">导入文件</button>
+        </div>
+      </div>
+      <div class="vp-upload-zone" id="vz-game"
+           onclick="selectPasteTarget('game')"
+           ondragover="vzDragOver(event,this)" ondragleave="vzDragLeave(this)" ondrop="vzDrop(event,'game')">
+        <img class="vz-preview" id="vz-preview-game" src="">
+        <div class="vz-upload-content">
+          <span class="vz-icon">🎮</span>
+          <span class="vz-label">游戏截图</span>
+          <span class="vz-hint">点击选中 → Ctrl+V 粘贴<br>或直接拖入图片</span>
+          <button class="vz-import-btn" onclick="event.stopPropagation();triggerUpload('game')">导入文件</button>
+        </div>
+      </div>
+    </div>
+    <div id="grid-container">
+      <div id="grid-inner">
+        <div class="grid-panel" id="panel-compare" style="display:none">
+          <span class="grid-panel-label">差异对比</span>
+          <canvas id="gcanvas-compare"></canvas>
+        </div>
+        <div class="grid-panel" id="panel-outline" style="display:none">
+          <span class="grid-panel-label">轮廓对比</span>
+          <canvas id="gcanvas-outline"></canvas>
+        </div>
+        <div class="grid-panel" id="panel-findiff" style="display:none">
+          <span class="grid-panel-label">X光对比</span>
+          <canvas id="gcanvas-findiff"></canvas>
+        </div>
+        <div class="grid-panel" id="panel-vsplit" style="display:none">
+          <span class="grid-panel-label">上下展示</span>
+          <canvas id="gcanvas-vsplit"></canvas>
+        </div>
+      </div>
+      <canvas id="grid-anno-overlay"></canvas>
+    </div>
+    <div id="zoom-info"><button class="zoom-btn" onclick="canvasZoom(0.9)">−</button><span id="zoom-text">80%</span><button class="zoom-btn" onclick="canvasZoom(1.1)">+</button></div>
+    <textarea id="text-input-overlay" rows="1"></textarea>
+    <div id="eraser-circle"></div>
+    <div class="canvas-tooltip" id="canvas-tooltip"></div>
+  </div>
+
+  <div id="report-panel">
+    <!-- QA Tag Library -->
+    <div id="qa-panel">
+      <div class="qa-header">
+        <div class="qa-header-title">🏷 问题标签库</div>
+        <button class="qa-toggle" onclick="toggleQAPanel()">收起</button>
+      </div>
+      <div id="qa-scroll"></div>
+      <div class="qa-footer">
+        <button class="qa-diag-btn" id="btn-auto-diag" onclick="autoDiagnose()">🔍 一键诊断</button>
+        <button class="qa-diag-btn" onclick="openModal('modal-ai')" style="margin-top:4px;font-size:11px;padding:5px 12px">🤖 AI配置</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="bottombar">
+  <div class="bb-left">
+    <div class="upload-box" id="box-game" onclick="triggerUpload('game')" ondragover="onDragOver(event)" ondrop="onDrop(event,'game')">
+      <span class="ub-icon">🎮</span><span class="ub-label">游戏截图</span>
+      <img id="thumb-game" src="">
+      <span class="ub-close" onclick="clearImage('game',event)">✕</span>
+    </div>
+    <div class="upload-box" id="box-ps" onclick="triggerUpload('ps')" ondragover="onDragOver(event)" ondrop="onDrop(event,'ps')">
+      <span class="ub-icon">🎨</span><span class="ub-label">设计稿</span>
+      <img id="thumb-ps" src="">
+      <span class="ub-close" onclick="clearImage('ps',event)">✕</span>
+    </div>
+    <input type="file" id="file-input-game" accept="image/*" style="display:none" onchange="handleFileInput(event,'game')">
+    <input type="file" id="file-input-ps" accept="image/*" style="display:none" onchange="handleFileInput(event,'ps')">
+    <div class="bb-slider-wrap">
+      <label class="bb-slider-label" id="ps-opacity-label">透明度 50%</label>
+      <input type="range" class="bb-slider" id="slider-ps" min="0" max="1" step="0.01" value="0.5" oninput="onPSOpacity(this)">
+    </div>
+  </div>
+  <div class="bb-center">
+    <div id="sensitivity-pills">
+      <span class="sp-label">灵敏度</span>
+      <button class="sens-pill" data-val="0" onclick="setSensitivity(0)">无</button>
+      <button class="sens-pill" data-val="70" onclick="setSensitivity(70)">低</button>
+      <button class="sens-pill active" data-val="40" onclick="setSensitivity(40)">一般</button>
+      <button class="sens-pill" data-val="20" onclick="setSensitivity(20)">高</button>
+      <button class="sens-pill" data-val="10" onclick="setSensitivity(10)">极高</button>
+    </div>
+    <button id="btn-start-compare" onclick="toggleCompare()" disabled>▶ 开始对比</button>
+  </div>
+  <div class="bb-right">
+    <button class="bb-mode-btn" id="mode-outline" onclick="setMode('outline')" disabled>◎ 轮廓对比</button>
+    <button class="bb-mode-btn" id="mode-compare" onclick="setMode('compare')" disabled>⬡ 差异对比</button>
+    <button class="bb-mode-btn" id="mode-findiff" onclick="setMode('findiff')" disabled>👁 X光对比</button>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-settings')">✕</button>
+    <div class="modal-title">⚙ 设置</div>
+    <div class="modal-row"><span class="modal-row-label">背景颜色</span>
+      <div class="toggle-switch">
+        <button class="ts-btn active" id="bw-dark" onclick="toggleBW(false)">深色</button>
+        <button class="ts-btn" id="bw-white" onclick="toggleBW(true)">白色</button>
+      </div>
+    </div>
+    <div class="modal-row"><span class="modal-row-label">语言</span>
+      <div class="toggle-switch">
+        <button class="ts-btn active" id="lang-zh" onclick="setLang('zh')">中文</button>
+        <button class="ts-btn" id="lang-en" onclick="setLang('en')">EN</button>
+      </div>
+    </div>
+    <div class="modal-row"><span class="modal-row-label">问题反馈</span>
+      <button class="ts-btn" onclick="alert('请发送邮件至 feedback@example.com')">反馈</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-help">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-help')">✕</button>
+    <div class="modal-title">? 使用帮助</div>
+    <div class="help-section"><h3>上传图片</h3><p>支持点击、拖放或 Ctrl+V 粘贴上传游戏截图和设计稿。</p></div>
+    <div class="help-section"><h3>对比模式</h3><ul>
+      <li><b>开始对比</b>：启动对比功能，启用各对比模式</li>
+      <li><b>轮廓对比</b>：Sobel 边缘检测叠加对比</li>
+      <li><b>差异对比</b>：像素级差异分析，红色标记差异区域</li>
+      <li><b>X光对比</b>：高亮差异区域便于人工检查</li>
+    </ul></div>
+    <div class="help-section"><h3>标注工具</h3><ul>
+      <li>支持矩形、圆形、直线、箭头、文字、画笔标注</li>
+      <li>选中工具后在左侧属性面板调整颜色、线宽等</li>
+      <li>标记带有矩形/圆形的标签，可点击形状内部拖拽移动</li>
+      <li>标签文字默认展示在画板外侧（自动选择最近的边）</li>
+    </ul></div>
+    <div class="help-section"><h3>问题标签</h3><ul>
+      <li>从右侧标签库拖拽标签到画板标记问题</li>
+      <li>支持 Ctrl+Z 撤回拖放操作</li>
+    </ul></div>
+    <div class="help-section"><h3>橡皮擦</h3><ul>
+      <li><b>抹提示</b>：擦除差异标记层</li>
+      <li><b>抹设稿</b>：局部遮盖设计稿</li>
+    </ul></div>
+    <div class="help-section"><h3>撤回/重做</h3><p>Ctrl+Z 撤回，Ctrl+Y 重做，或点击侧栏按钮。</p></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-ai">
+  <div class="modal-box" style="min-width:380px">
+    <button class="modal-close" onclick="closeModal('modal-ai')">✕</button>
+    <div class="modal-title">🤖 AI 识图分析配置</div>
+    <p style="font-size:11px;color:#888;margin-bottom:12px;line-height:1.6">配置AI视觉模型后，一键诊断将使用AI对每个差异区域进行智能分类。<br>支持本地 Ollama（免费）或云端 OpenAI 兼容接口。</p>
+    <div class="form-row"><label class="form-label">接口类型</label>
+      <select class="form-input" id="ai-type-sel" onchange="onAITypeChange()">
+        <option value="ollama">Ollama（本地）</option>
+        <option value="siliconflow">硅基流动</option>
+        <option value="zhipu">智谱AI</option>
+        <option value="qwen">通义千问</option>
+        <option value="openai">OpenAI兼容</option>
+      </select>
+    </div>
+    <div class="form-row"><label class="form-label">API 地址</label>
+      <input class="form-input" id="ai-url-inp" placeholder="http://localhost:11434">
+    </div>
+    <div class="form-row"><label class="form-label">模型名称（需支持图片识别）</label>
+      <input class="form-input" id="ai-model-inp" placeholder="如 llava、minicpm-v、gpt-4o">
+    </div>
+    <div class="form-row" id="ai-key-row" style="display:none"><label class="form-label">API Key</label>
+      <input class="form-input" id="ai-key-inp" type="password" placeholder="sk-...">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="form-btn" onclick="saveAIConfigUI();closeModal('modal-ai')">保存</button>
+      <button class="form-btn-ghost" onclick="testAIConnection()">测试连接</button>
+      <button class="form-btn-ghost" onclick="closeModal('modal-ai')">取消</button>
+    </div>
+    <div id="ai-config-msg" style="margin-top:8px;font-size:11px;color:#aaa"></div>
+  </div>
 </div>
 
 <script>
-    const viewport = document.getElementById('viewport');
-    const gameImg = document.getElementById('game-layer'), psImg = document.getElementById('ps-layer');
-    const mCan = document.getElementById('mark-canvas'), mCtx = mCan.getContext('2d');
-    const aCan = document.getElementById('anno-canvas'), aCtx = aCan.getContext('2d');
-    const mGen = document.getElementById('mask-gen-canvas'), mGCtx = mGen.getContext('2d');
-    const eraserCircle = document.getElementById('eraser-circle'), emptyGuide = document.getElementById('empty-guide');
-    const psSlider = document.getElementById('slider-ps');
+'use strict';
+// ====== STATE ======
+let activeTool = null;
+let annoProps = { color:'#ff6b35', lw:4, dashed:false, fontSize:72, bold:false, italic:false, underline:false };
+let eraserSize = 60;
+let annos = [], history = [], redoHistory = [];
+let gridAnnos = [], gridHistory = [], gridRedoHistory = [];
+function curAnnos() { return annos; }
+let isMouseDown = false, startX = 0, startY = 0;
+let brushPoints = [];
+let selectedAnnoIdx = -1, activeHandle = null, isDraggingAnno = false, dragOffX = 0, dragOffY = 0;
+let _shapeDragLb = null, _shapeDragStart = null;
+let pendingTextCommit = null;
+let suppressTextBlur = false;
+// New mode state
+let isActive = false;        // whether comparison is running
+let currentMode = 'outline'; // 'compare' | 'outline' | 'findiff'
+let sensitivityVal = 40;     // threshold for diff comparison
+// Legacy derived vars (kept for compatibility with analysis functions)
+let isComparing = false, isOutline = false, isFindiff = false, isVSplit = false;
+function isGridActive(){ return false; } // grid view removed; annotations always use single canvas
+let reportData = null, regionChecked = [], activeFilter = 'all';
+let canvasScale = 1, annoCanvasScale = 1, zoomLevel = 0.8;
+let bwMode = false, lang = 'zh';
+let aiConfig = { enabled:true, type:'ollama', url:'http://localhost:11434', model:'', apiKey:'' };
+let gameImg = null, psImg = null;
+let markCtx, annoCtx, clickCtx, splitCtx;
+let textAnnoX = 0, textAnnoY = 0;
+let reportMarkers = [];
+let panelCache = {};
+let gridZoom = 1, gridPanX = 0, gridPanY = 0, gridIsPanning = false, gridPanStart = null;
+let mGenCanvas, mGenCtx;
+let exportMerge = true; // true=合并导出, false=分开导出
+// Canvas labels (draggable QA tags placed on viewport)
+let canvasLabels = [];
+let selectedLabelId = null; // currently selected label for editing
+let pasteTarget = null; // which upload slot receives paste: 'game' or 'ps' or null
+let labelProps = { color:'#007AFF', shape:'none', lw:2 };
+const CP_COLORS = ['#ffeb3b','#ff4757','#007AFF','#00b894','#ff6b35','#a29bfe','#ffffff','#000000'];
+const AI_PROMPT = `你是一个专业的UI质量检测AI。请分析以下UI差异数据，给出简洁的中文诊断报告。重点指出：1.哪些区域问题最严重 2.可能的原因 3.修复建议。数据：`;
+// QA tag definitions
+const QA_TAGS = [
+  {cat:'位置偏移',cls:'cat-layout',tags:['水平偏移','垂直偏移','整体偏移','间距偏差']},
+  {cat:'尺寸差异',cls:'cat-size',tags:['元素偏大','元素偏小','宽度不符','高度不符']},
+  {cat:'颜色差异',cls:'cat-color',tags:['颜色偏差','亮度不符','饱和度偏差','透明度差异']},
+  {cat:'内容差异',cls:'cat-text',tags:['文字差异','内容缺失','多余内容','图片差异']},
+  {cat:'样式差异',cls:'cat-asset',tags:['边框差异','圆角差异','阴影差异','背景差异']},
+];
 
-    let mode = 'none', eTgt = 'mark', aTgt = 'arrow', aCol = '#ffeb3b';
-    let isMouseDown = false, startX, startY, isComparing = false;
-    let annos = [], selectedAnno = null, isDragging = false, history = [];
+// ====== DOM REFS ======
+const gameLayer = document.getElementById('game-layer');
+const psLayer = document.getElementById('ps-layer');
+const markCanvas = document.getElementById('mark-canvas');
+const annoCanvas = document.getElementById('anno-canvas');
+const clickCanvas = document.getElementById('click-canvas');
+const splitCanvas = document.getElementById('split-canvas');
+const layers = document.getElementById('layers');
+const viewport = document.getElementById('viewport');
+const emptyGuide = document.getElementById('empty-guide');
+const propPanel = document.getElementById('prop-panel');
+const propInner = document.getElementById('prop-inner');
+const eraserCircle = document.getElementById('eraser-circle');
+const canvasTooltip = document.getElementById('canvas-tooltip');
+const zoomInfo = document.getElementById('zoom-text');
 
-    function syncCanvasSize() {
-        const w = gameImg.naturalWidth || psImg.naturalWidth;
-        const h = gameImg.naturalHeight || psImg.naturalHeight;
-        if (w && (aCan.width !== w || aCan.height !== h)) {
-            aCan.width = mCan.width = mGen.width = w;
-            aCan.height = mCan.height = mGen.height = h;
-            drawAnnos(); 
-        }
-        return !!w;
+// ====== INIT ======
+window.addEventListener('load', () => {
+  markCtx = markCanvas.getContext('2d');
+  annoCtx = annoCanvas.getContext('2d');
+  clickCtx = clickCanvas.getContext('2d');
+  splitCtx = splitCanvas.getContext('2d');
+  mGenCanvas = document.createElement('canvas');
+  mGenCtx = mGenCanvas.getContext('2d');
+  // Prevent prop panel button clicks from stealing focus away from text input overlay.
+  // Range sliders are exempt (they need mousedown to drag), but we suppress blur commit
+  // during slider interaction and restore focus on mouseup.
+  propInner.addEventListener('mousedown', e => {
+    const ov=document.getElementById('text-input-overlay');
+    const textActive=ov && ov.style.display!=='none';
+    if(!textActive) return; // text overlay not active → don't interfere with normal prop interactions
+    // Text overlay active: prevent prop panel from stealing focus / committing text
+    suppressTextBlur=true;
+    if(!(e.target.tagName==='INPUT' && e.target.type==='range')) {
+      e.preventDefault(); // keep focus on textarea (doesn't block onclick on buttons)
     }
-
-    function checkHit(p) {
-        if (!p) return null;
-        for (let i = annos.length - 1; i >= 0; i--) {
-            const an = annos[i];
-            if (an.t === 'arrow') {
-                const l2 = Math.pow(an.x1 - an.x2, 2) + Math.pow(an.y1 - an.y2, 2);
-                if (l2 === 0) continue;
-                let t = ((p.x - an.x1) * (an.x2 - an.x1) + (p.y - an.y1) * (an.y2 - an.y1)) / l2;
-                t = Math.max(0, Math.min(1, t));
-                const dist = Math.hypot(p.x - (an.x1 + t * (an.x2 - an.x1)), p.y - (an.y1 + t * (an.y2 - an.y1)));
-                if (dist < 20) return an; 
-            } else if (an.t === 'text') {
-                const tw = an.txt.length * 30; 
-                const th = 50;
-                if (p.x >= an.x1 && p.x <= an.x1 + tw && p.y >= an.y1 - th && p.y <= an.y1 + 10) return an;
-            }
-        }
-        return null;
+  });
+  document.addEventListener('mouseup', () => {
+    if(suppressTextBlur) {
+      suppressTextBlur=false;
+      const ov=document.getElementById('text-input-overlay');
+      if(ov && ov.style.display!=='none') ov.focus();
     }
+  });
+  loadAIConfig();
+  bindAnnoEvents();
+  bindKeyboard();
+  bindPaste();
+  renderQAPanel();
+  checkGuide();
+  updateUndoRedo();
+});
+window.addEventListener('resize', () => {
+  syncCanvasSize();
+  if(isActive) renderCurrentMode();
+});
+document.addEventListener('click', e => {
+  if(!e.target.closest('.export-split') && !e.target.closest('#export-dropdown')) closeExportDropdown();
+});
 
-    function updateCursor(e) {
-        viewport.classList.remove('cursor-arrow', 'cursor-text', 'cursor-eraser', 'cursor-grab');
-        if (mode === 'eraser') {
-            viewport.classList.add('cursor-eraser');
-        } else if (mode === 'anno') {
-            const hit = checkHit(getPos(e));
-            if (hit) viewport.classList.add('cursor-grab');
-            else {
-                if (aTgt === 'arrow') viewport.classList.add('cursor-arrow');
-                else if (aTgt === 'text') viewport.classList.add('cursor-text');
-            }
-        }
+// ====== UPLOAD ======
+function selectPasteTarget(type) {
+  pasteTarget=type;
+  updatePasteTargetUI();
+}
+function updatePasteTargetUI(){
+  document.querySelectorAll('.vp-upload-zone').forEach(el=>el.classList.remove('paste-target'));
+  if(!pasteTarget) return;
+  const vz=document.getElementById(pasteTarget==='ps'?'vz-ps':'vz-game');
+  if(vz&&!(pasteTarget==='game'?gameImg:psImg)) vz.classList.add('paste-target');
+}
+function triggerUpload(type) { document.getElementById('file-input-'+type).click(); }
+function handleFileInput(e, type) { const f=e.target.files[0]; if(f) loadImageFile(f,type); e.target.value=''; }
+function onDragOver(e) { e.preventDefault(); e.stopPropagation(); }
+function onDrop(e, type) { e.preventDefault(); e.stopPropagation(); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/')) loadImageFile(f,type); }
+function vzDragOver(e, el) { e.preventDefault(); e.stopPropagation(); el.classList.add('drag-over'); }
+function vzDragLeave(el) { el.classList.remove('drag-over'); }
+function vzDrop(e, type) { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('drag-over'); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/')) loadImageFile(f,type); }
+
+function bindPaste() {
+  document.addEventListener('paste', e => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if(!items) return;
+    for(let i=0;i<items.length;i++) {
+      if(items[i].type.startsWith('image/')) {
+        // Must have a paste target selected, or auto-detect from loaded state
+        let type;
+        if(!gameImg&&psImg) type='game';
+        else if(!psImg&&gameImg) type='ps';
+        else if(pasteTarget) type=pasteTarget;
+        else return; // no target selected, ignore paste
+        const vzId=type==='ps'?'vz-ps':'vz-game';
+        const vz=document.getElementById(vzId);
+        if(vz){vz.classList.add('drag-over');setTimeout(()=>vz.classList.remove('drag-over'),600);}
+        loadImageFile(items[i].getAsFile(), type);
+        // Auto-switch paste target to the other slot
+        if(type==='game'&&!psImg) pasteTarget='ps';
+        else if(type==='ps'&&!gameImg) pasteTarget='game';
+        setTimeout(updatePasteTargetUI,100);
+        break;
+      }
     }
+  });
+}
 
-    function checkGuide() {
-        if (gameImg.src.includes('blob:') || psImg.src.includes('blob:')) {
-            emptyGuide.style.opacity = '0';
-            setTimeout(() => { if(emptyGuide.style.opacity === '0') emptyGuide.style.display = 'none'; }, 500);
-        } else {
-            emptyGuide.style.display = 'flex';
-            setTimeout(() => { emptyGuide.style.opacity = '1'; }, 10);
-        }
+function loadImageFile(file, type) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    if(type==='game') {
+      gameImg=img;
+      gameLayer.onload=null;
+      gameLayer.src=url;
+      gameLayer.style.visibility='visible';
+      const th=document.getElementById('thumb-game'); th.src=url;
+      document.getElementById('box-game').classList.add('loaded');
+    } else {
+      psImg=img;
+      psLayer.src=url;
+      psLayer.style.visibility='visible';
+      const th=document.getElementById('thumb-ps'); th.src=url;
+      document.getElementById('box-ps').classList.add('loaded');
     }
+    setTimeout(syncCanvasSize,80);
+    checkGuide();
+  };
+  img.src=url;
+}
 
-    function updateImageSource(type, url) {
-        const target = document.getElementById(type + '-layer');
-        target.src = url;
-        target.onload = () => { syncCanvasSize(); if (isComparing) runAnalysis(); };
-        document.getElementById('thumb-' + type).src = url;
-        document.getElementById('thumb-' + type).style.display = 'block';
-        document.getElementById('cls-' + type).style.display = 'flex';
-        checkGuide();
-    }
+function clearImage(type, e) {
+  e&&e.stopPropagation();
+  if(type==='game') {
+    gameImg=null; gameLayer.src=''; gameLayer.style.visibility='hidden';
+    document.getElementById('thumb-game').src='';
+    document.getElementById('box-game').classList.remove('loaded');
+  } else {
+    psImg=null; psLayer.src=''; psLayer.style.visibility='hidden';
+    document.getElementById('thumb-ps').src='';
+    document.getElementById('box-ps').classList.remove('loaded');
+  }
+  syncCanvasSize(); checkGuide();
+}
 
-    ['game','ps'].forEach(type => {
-        const box = document.getElementById('box-'+type);
-        box.onpaste = (e) => {
-            const items = e.clipboardData.items;
-            for (let i = 0; i < items.length; i++) { if (items[i].type.indexOf("image") !== -1) updateImageSource(type, URL.createObjectURL(items[i].getAsFile())); }
-        };
-        box.ondragenter = (e) => { e.preventDefault(); box.classList.add('drag-over'); };
-        box.ondragover = (e) => { e.preventDefault(); box.classList.add('drag-over'); };
-        box.ondragleave = (e) => { e.preventDefault(); box.classList.remove('drag-over'); };
-        box.ondrop = (e) => { e.preventDefault(); box.classList.remove('drag-over'); const file = e.dataTransfer.files[0]; if(file) updateImageSource(type, URL.createObjectURL(file)); };
-        document.getElementById('cls-'+type).onclick = (e) => { e.stopPropagation(); document.getElementById(type+'-layer').src = ''; document.getElementById('thumb-'+type).style.display = 'none'; document.getElementById('cls-'+type).style.display = 'none'; checkGuide(); };
+function checkGuide() {
+  const vzGame=document.getElementById('vz-game');
+  const vzPs=document.getElementById('vz-ps');
+  const prevGame=document.getElementById('vz-preview-game');
+  const prevPs=document.getElementById('vz-preview-ps');
+  if(vzGame) vzGame.classList.toggle('loaded',!!gameImg);
+  if(vzPs) vzPs.classList.toggle('loaded',!!psImg);
+  if(prevGame) prevGame.src=gameImg?gameLayer.src:'';
+  if(prevPs) prevPs.src=psImg?psLayer.src:'';
+  const bothNow=!!(gameImg&&psImg);
+  const startBtn=document.getElementById('btn-start-compare');
+  if(startBtn) {
+    startBtn.disabled=!bothNow;
+    startBtn.classList.toggle('cta-ready', bothNow && !isActive);
+  }
+  updateUploadGuide();
+  updatePasteTargetUI();
+}
+function updateUploadGuide(){
+  const ug=document.getElementById('upload-guide');
+  if(ug) ug.style.display=isActive?'none':'flex';
+  // When upload guide is visible, disable clickCanvas so zones are clickable/droppable
+  clickCanvas.style.pointerEvents=isActive?'auto':'none';
+  layers.style.display='none';
+}
+
+function onPSOpacity(el) {
+  psLayer.style.opacity=el.value;
+  document.getElementById('ps-opacity-label').textContent='透明度 '+Math.round(el.value*100)+'%';
+}
+
+// ====== CANVAS SYNC ======
+function syncCanvasSize() {
+  const refImg=gameImg||psImg;
+  if(!refImg) { layers.style.width='0'; layers.style.height='0'; return false; }
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  const nw=refImg.naturalWidth, nh=refImg.naturalHeight;
+  if(!nw||!nh) return false;
+  let w=vw, h=vw*nh/nw;
+  if(h>vh){h=vh;w=vh*nw/nh;}
+  w=Math.floor(w*zoomLevel); h=Math.floor(h*zoomLevel);
+  if(!w||!h) return false;
+  layers.style.width=w+'px'; layers.style.height=h+'px';
+  gameLayer.style.width='100%'; gameLayer.style.height='100%';
+  psLayer.style.width='100%'; psLayer.style.height='100%';
+  // markCanvas stays inside #layers (image-space, for diff/outline/findiff)
+  if(markCanvas.width!==nw||markCanvas.height!==nh){markCanvas.width=nw;markCanvas.height=nh;}
+  markCanvas.style.width='100%'; markCanvas.style.height='100%';
+  markCanvas.style.position='absolute'; markCanvas.style.top='0'; markCanvas.style.left='0';
+  // anno-canvas and click-canvas cover the full viewport (for annotations beyond image bounds)
+  const avw=viewport.clientWidth, avh=viewport.clientHeight;
+  if(annoCanvas.width!==avw||annoCanvas.height!==avh){annoCanvas.width=avw;annoCanvas.height=avh;}
+  if(clickCanvas.width!==avw||clickCanvas.height!==avh){clickCanvas.width=avw;clickCanvas.height=avh;}
+  if(mGenCanvas.width!==nw||mGenCanvas.height!==nh){
+    mGenCanvas.width=nw; mGenCanvas.height=nh;
+    mGenCtx.fillStyle='#fff'; mGenCtx.fillRect(0,0,nw,nh);
+  }
+  canvasScale=nw/w;
+  annoCanvasScale=1; // anno/click canvas is now 1:1 with viewport pixels
+  drawAnnos();
+  zoomInfo.textContent=Math.round(zoomLevel*100)+'%';
+  return true;
+}
+
+// ====== TOOL SELECTION ======
+function highlightSidebarTool(type) {
+  document.querySelectorAll('.sb-btn').forEach(b=>b.classList.remove('active'));
+  if(type){const el=document.getElementById('tool-'+type);if(el)el.classList.add('active');}
+}
+function setTool(t) {
+  activeTool=(activeTool===t)?null:t;
+  selectedAnnoIdx=-1; activeHandle=null;
+  if(t!=='label') selectedLabelId=null;
+  drawAnnos();
+  highlightSidebarTool(activeTool);
+  renderPropPanel(); updateCursor();
+}
+function updateCursor() {
+  const gao=document.getElementById('grid-anno-overlay');
+  if(!activeTool){
+    clickCanvas.style.cursor='default';
+    if(gao) gao.style.cursor=isGridActive()?'default':'';
+    eraserCircle.style.display='none'; return;
+  }
+  let cur='crosshair';
+  if(activeTool.startsWith('e-')){cur='none';}
+  clickCanvas.style.cursor=cur;
+  if(gao) gao.style.cursor=cur;
+}
+
+// ====== PROP PANEL ======
+function renderPropPanel() {
+  const selAnno=selectedAnnoIdx>=0 && curAnnos()[selectedAnnoIdx];
+  const panelTool=activeTool||(selAnno?selAnno.type:null);
+  // Label tool or selected label: show label properties
+  if(panelTool==='label'||selectedLabelId){
+    propPanel.classList.add('open');
+    const selLb=selectedLabelId?canvasLabels.find(l=>l.id===selectedLabelId):null;
+    const mc=selLb?(selLb.color||labelProps.color):labelProps.color;
+    const sh=selLb?(selLb.shape||'none'):labelProps.shape;
+    const lw=selLb?(selLb.lw||2):labelProps.lw;
+    let h='<div class="prop-title">标注属性</div>';
+    // Shape type selector
+    h+='<div class="prop-section"><div class="prop-label">标记类型</div><div class="toggle-row">';
+    [{v:'none',l:'──'},{v:'rect',l:'□'},{v:'circle',l:'○'},{v:'arrow',l:'↗'}].forEach(s=>{
+      h+=`<button class="tog-btn${sh===s.v?' active':''}" onclick="setLabelProp('shape','${s.v}')" style="font-size:14px">${s.l}</button>`;
     });
+    h+='</div></div>';
+    // Unified color picker
+    h+='<div class="prop-section"><div class="prop-label">标注颜色</div><div class="cp-row">';
+    ['#007AFF','#ff4757','#4ecca3','#ffc107','#a29bfe','#fd79a8','#e17336','#ffffff'].forEach(c=>{
+      h+=`<div class="cp-dot${mc===c?' active':''}" style="background:${c}" onclick="setLabelProp('color','${c}')"></div>`;
+    });
+    h+='</div></div>';
+    // Line width slider (always visible, controls shape outline and connector line)
+    h+=`<div class="prop-section"><div class="prop-label">线条粗细 <span id="lbl-lw-val">${lw}</span></div>
+    <input type="range" class="prop-slider" min="1" max="10" value="${lw}" oninput="setLabelProp('lw',+this.value);document.getElementById('lbl-lw-val').textContent=this.value"></div>`;
+    propInner.innerHTML=h;
+    setTimeout(syncCanvasSize,220);
+    return;
+  }
+  if(!panelTool){propPanel.classList.remove('open');setTimeout(syncCanvasSize,220);return;}
+  propPanel.classList.add('open');
+  let h='<div class="prop-title">'+toolName(panelTool)+'</div>';
+  if(panelTool==='brush'){
+    h+='<div class="prop-section"><div class="prop-label">颜色</div><div class="cp-row">';
+    CP_COLORS.forEach(c=>{h+=`<div class="cp-dot${annoProps.color===c?' active':''}" style="background:${c}" onclick="setPropColor('${c}')"></div>`;});
+    h+='</div></div>';
+    h+=`<div class="prop-section"><div class="prop-label">线宽 <span id="lw-val">${annoProps.lw}</span></div>
+    <input type="range" class="prop-slider" min="1" max="50" value="${annoProps.lw}" oninput="setPropLW(+this.value)"></div>`;
+  }
+  if(panelTool&&panelTool.startsWith('e-')){
+    h+=`<div class="prop-section"><div class="prop-label">大小 <span id="es-val">${eraserSize}</span></div>
+    <input type="range" class="prop-slider" min="10" max="200" value="${eraserSize}" oninput="setEraserSize(+this.value)"></div>`;
+  }
+  propInner.innerHTML=h;
+  setTimeout(syncCanvasSize,220);
+}
+function toolName(t){const m={label:'标注',brush:'画笔','e-mark':'抹提示','e-ps':'抹设稿'};return m[t]||t;}
 
-    function getPos(e) {
-        if (!e) return null;
-        const rect = aCan.getBoundingClientRect();
-        const imgW = gameImg.naturalWidth || psImg.naturalWidth;
-        if(!imgW) return {x:0, y:0};
-        const rw = rect.width, rh = rect.height;
-        const r = imgW / (gameImg.naturalHeight || psImg.naturalHeight), cr = rw / rh;
-        let aw, ah, ox, oy;
-        if (r > cr) { aw = rw; ah = rw / r; ox = 0; oy = (rh - ah) / 2; }
-        else { ah = rh; aw = rh * r; oy = 0; ox = (rw - aw) / 2; }
-        return { x: (e.clientX - rect.left - ox) * (imgW / aw), y: (e.clientY - rect.top - oy) * (imgW / aw) };
+function hitTestCanvasLabel(x, y) {
+  for(let i=canvasLabels.length-1;i>=0;i--){
+    const lb=canvasLabels[i];
+    const el=document.getElementById('cl-'+lb.id);
+    if(!el) continue;
+    const r=el.getBoundingClientRect();
+    const vr=viewport.getBoundingClientRect();
+    const lx=r.left-vr.left, ly=r.top-vr.top;
+    if(x>=lx && x<=lx+r.width && y>=ly && y<=ly+r.height) return lb;
+    // Check target dot / shape area
+    if(lb.shape && lb.shape!=='none' && lb.sx!=null){
+      const minX=Math.min(lb.sx,lb.tx), maxX=Math.max(lb.sx,lb.tx);
+      const minY=Math.min(lb.sy,lb.ty), maxY=Math.max(lb.sy,lb.ty);
+      if(x>=minX-5 && x<=maxX+5 && y>=minY-5 && y<=maxY+5) return lb;
+    } else {
+      if(Math.abs(x-lb.tx)<10 && Math.abs(y-lb.ty)<10) return lb;
     }
-
-    function runAnalysis() {
-        if (!syncCanvasSize()) return;
-        const w = aCan.width, h = aCan.height;
-        mCan.style.display = 'block'; 
-        mGCtx.globalCompositeOperation = 'source-over';
-        mGCtx.fillStyle = "white"; 
-        mGCtx.fillRect(0,0,w,h);
-        const off = document.createElement('canvas'); off.width = w; off.height = h;
-        const octx = off.getContext('2d');
-        octx.drawImage(gameImg, 0, 0, w, h); const d1 = octx.getImageData(0, 0, w, h).data;
-        octx.clearRect(0,0,w,h); octx.drawImage(psImg, 0, 0, w, h); const d2 = octx.getImageData(0, 0, w, h).data;
-        mCtx.clearRect(0, 0, w, h); mCtx.fillStyle = "rgba(255, 0, 0, 0.7)";
-        const threshold = parseInt(document.getElementById('threshold-slider').value) * 3;
-        for (let i = 0; i < d1.length; i += 4) { if (Math.abs(d1[i]-d2[i]) + Math.abs(d1[i+1]-d2[i+1]) + Math.abs(d1[i+2]-d2[i+2]) > threshold) mCtx.fillRect((i/4)%w, Math.floor((i/4)/w), 1, 1); }
-        psImg.style.opacity = psSlider.value; 
-        drawAnnos();
+  }
+  return null;
+}
+function hitTestLabelShapeOutline(x, y) {
+  const t=6;
+  for(let i=canvasLabels.length-1;i>=0;i--){
+    const lb=canvasLabels[i];
+    if(!lb.shape||lb.shape==='none'||lb.sx==null) continue;
+    const minX=Math.min(lb.sx,lb.tx), maxX=Math.max(lb.sx,lb.tx);
+    const minY=Math.min(lb.sy,lb.ty), maxY=Math.max(lb.sy,lb.ty);
+    if(lb.shape==='rect'){
+      const onH=(x>=minX-t&&x<=maxX+t)&&(Math.abs(y-minY)<t||Math.abs(y-maxY)<t);
+      const onV=(y>=minY-t&&y<=maxY+t)&&(Math.abs(x-minX)<t||Math.abs(x-maxX)<t);
+      if(onH||onV) return lb;
+    } else if(lb.shape==='circle'){
+      const cx2=(lb.sx+lb.tx)/2, cy2=(lb.sy+lb.ty)/2;
+      const rx=Math.abs(lb.tx-lb.sx)/2||1, ry=Math.abs(lb.ty-lb.sy)/2||1;
+      const d=((x-cx2)/rx)**2+((y-cy2)/ry)**2;
+      if(Math.abs(d-1)<0.3) return lb;
+    } else if(lb.shape==='arrow'){
+      const adx=lb.tx-lb.sx, ady=lb.ty-lb.sy;
+      const len=Math.sqrt(adx*adx+ady*ady)||1;
+      const dist=Math.abs(ady*x-adx*y+lb.tx*lb.sy-lb.ty*lb.sx)/len;
+      if(dist<t && x>=minX-t && x<=maxX+t && y>=minY-t && y<=maxY+t) return lb;
     }
+  }
+  return null;
+}
 
-    function drawAnnos() {
-        if (!aCan.width) return;
-        aCtx.clearRect(0, 0, aCan.width, aCan.height);
-        annos.forEach(an => {
-            aCtx.strokeStyle = aCtx.fillStyle = an.c; aCtx.lineWidth = 6; aCtx.lineCap = "round";
-            if(an.t === 'arrow') {
-                const head = 35, ang = Math.atan2(an.y2 - an.y1, an.x2 - an.x1);
-                aCtx.beginPath(); aCtx.moveTo(an.x1, an.y1); aCtx.lineTo(an.x2, an.y2);
-                aCtx.lineTo(an.x2-head*Math.cos(ang-Math.PI/6), an.y2-head*Math.sin(ang-Math.PI/6));
-                aCtx.moveTo(an.x2, an.y2); 
-                aCtx.lineTo(an.x2-head*Math.cos(ang+Math.PI/6), an.y2-head*Math.sin(ang+Math.PI/6));
-                aCtx.stroke();
-            } else { aCtx.font = "bold 45px sans-serif"; aCtx.fillText(an.txt, an.x1, an.y1); }
+function deriveLabelColors(c) {
+  // From a main color like '#ff4757', derive: bgColor (22 alpha), textColor (full), lineColor (88 alpha)
+  const hex=c.replace('#','').slice(0,6);
+  return { bgColor:'#'+hex+'22', textColor:'#'+hex, lineColor:'#'+hex+'88' };
+}
+function setLabelProp(prop, val) {
+  labelProps[prop]=val;
+  if(selectedLabelId){
+    const lb=canvasLabels.find(l=>l.id===selectedLabelId);
+    if(lb){
+      if(prop==='color'){
+        const d=deriveLabelColors(val);
+        lb.bgColor=d.bgColor; lb.textColor=d.textColor; lb.lineColor=d.lineColor; lb.color=val;
+      } else {
+        lb[prop]=val;
+      }
+      renderCanvasLabels();
+    }
+  }
+  renderPropPanel();
+}
+
+function syncPropsFromAnno(a) {
+  if(a.color) annoProps.color=a.color;
+  if(a.lw) annoProps.lw=a.lw;
+  if(typeof a.dashed!=='undefined') annoProps.dashed=a.dashed;
+  if(a.type==='text') {
+    annoProps.fontSize=a.fontSize||20;
+    annoProps.bold=!!a.bold; annoProps.italic=!!a.italic; annoProps.underline=!!a.underline;
+  }
+}
+function setPropColor(c) { annoProps.color=c; applyAnnoPropChange(); renderPropPanel(); }
+function setPropLW(v) {
+  annoProps.lw=v;
+  const el=document.getElementById('lw-val'); if(el)el.textContent=v;
+  applyAnnoPropChange();
+}
+function setPropDashed(v) { annoProps.dashed=v; applyAnnoPropChange(); renderPropPanel(); }
+function setPropFS(v) {
+  annoProps.fontSize=v;
+  const el=document.getElementById('fs-val'); if(el)el.textContent=v;
+  applyAnnoPropChange();
+}
+function setPropBold() { annoProps.bold=!annoProps.bold; applyAnnoPropChange(); renderPropPanel(); }
+function setPropItalic() { annoProps.italic=!annoProps.italic; applyAnnoPropChange(); renderPropPanel(); }
+function setPropUnderline() { annoProps.underline=!annoProps.underline; applyAnnoPropChange(); renderPropPanel(); }
+function setEraserSize(v) { eraserSize=v; const el=document.getElementById('es-val'); if(el)el.textContent=v; }
+
+// Propagate prop changes to: text overlay (if active) + any selected annotation
+function applyAnnoPropChange() {
+  const ov=document.getElementById('text-input-overlay');
+  if(ov.style.display!=='none') {
+    ov.style.color=annoProps.color;
+    ov.style.fontSize=Math.round(annoProps.fontSize/canvasScale)+'px';
+    ov.style.fontWeight=annoProps.bold?'bold':'normal';
+    ov.style.fontStyle=annoProps.italic?'italic':'normal';
+    ov.style.textDecoration=annoProps.underline?'underline':'none';
+  }
+  if(selectedAnnoIdx>=0 && curAnnos()[selectedAnnoIdx]) {
+    const a=curAnnos()[selectedAnnoIdx];
+    a.color=annoProps.color;
+    if(typeof a.lw!=='undefined'||['rect','circle','line','arrow','brush'].includes(a.type)) a.lw=annoProps.lw;
+    if(['rect','circle','line'].includes(a.type)) a.dashed=annoProps.dashed;
+    if(a.type==='text') {
+      a.fontSize=annoProps.fontSize;
+      a.bold=annoProps.bold; a.italic=annoProps.italic; a.underline=annoProps.underline;
+    }
+    drawAnnos();
+  }
+}
+
+// ====== getPos ======
+function getPos(e) {
+  // Eraser tools need image-space coordinates (for markCanvas/mGenCanvas)
+  if(activeTool && activeTool.startsWith('e-')) {
+    return getImagePos(e);
+  }
+  // Annotation tools use viewport coordinates (allow drawing outside image)
+  const r=viewport.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+function getImagePos(e) {
+  const refImg=gameImg||psImg;
+  if(!refImg) return {x:0,y:0};
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  const nw=refImg.naturalWidth, nh=refImg.naturalHeight;
+  let w=vw, h=vw*nh/nw;
+  if(h>vh){h=vh;w=vh*nw/nh;}
+  w=Math.floor(w*zoomLevel); h=Math.floor(h*zoomLevel);
+  const ox=(vw-w)/2, oy=(vh-h)/2;
+  const r=viewport.getBoundingClientRect();
+  const cx=e.clientX-r.left, cy=e.clientY-r.top;
+  const scale=nw/w;
+  return {x:(cx-ox)*scale, y:(cy-oy)*scale};
+}
+function getPosInGrid(e) {
+  const modes=['compare','outline','findiff','vsplit'];
+  const activeMap={compare:isComparing,outline:isOutline,findiff:isFindiff,vsplit:isVSplit};
+  for(const mode of modes) {
+    if(!activeMap[mode]||!panelCache[mode]) continue;
+    const panel=document.getElementById('panel-'+mode);
+    const r=panel.getBoundingClientRect();
+    if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom) {
+      if(mode==='vsplit'&&gameImg) {
+        const halfH=r.height/2;
+        const s=Math.min(r.width/gameImg.naturalWidth,halfH/gameImg.naturalHeight);
+        const aox=r.left+(r.width-gameImg.naturalWidth*s)/2;
+        const aoy=r.top+halfH+(halfH-gameImg.naturalHeight*s)/2;
+        return {x:(e.clientX-aox)/s, y:(e.clientY-aoy)/s};
+      }
+      const cache=panelCache[mode];
+      const pw=r.width, ph=r.height;
+      const scale=Math.min(pw/cache.width,ph/cache.height);
+      const ox=(pw-cache.width*scale)/2, oy=(ph-cache.height*scale)/2;
+      return {x:(e.clientX-r.left-ox)/scale, y:(e.clientY-r.top-oy)/scale};
+    }
+  }
+  // fallback: first active panel
+  for(const mode of modes) {
+    if(!activeMap[mode]||!panelCache[mode]) continue;
+    const panel=document.getElementById('panel-'+mode);
+    const r=panel.getBoundingClientRect();
+    if(mode==='vsplit'&&gameImg) {
+      const halfH=r.height/2;
+      const s=Math.min(r.width/gameImg.naturalWidth,halfH/gameImg.naturalHeight);
+      const aox=r.left+(r.width-gameImg.naturalWidth*s)/2;
+      const aoy=r.top+halfH+(halfH-gameImg.naturalHeight*s)/2;
+      return {x:(e.clientX-aox)/s, y:(e.clientY-aoy)/s};
+    }
+    const cache=panelCache[mode];
+    const pw=r.width, ph=r.height;
+    const scale=Math.min(pw/cache.width,ph/cache.height);
+    const ox=(pw-cache.width*scale)/2, oy=(ph-cache.height*scale)/2;
+    return {x:(e.clientX-r.left-ox)/scale, y:(e.clientY-r.top-oy)/scale};
+  }
+  return {x:0,y:0};
+}
+
+// ====== HIT TEST & HANDLES ======
+const HANDLE_CURSORS = {
+  tl:'nwse-resize', tc:'ns-resize', tr:'nesw-resize',
+  ml:'ew-resize',                   mr:'ew-resize',
+  bl:'nesw-resize', bc:'ns-resize', br:'nwse-resize',
+  p1:'crosshair', p2:'crosshair'
+};
+
+function getHandles(a) {
+  if(['line','arrow'].includes(a.type))
+    return [{id:'p1',x:a.x1,y:a.y1},{id:'p2',x:a.x2,y:a.y2}];
+  if(['rect','circle'].includes(a.type)) {
+    const x1=Math.min(a.x1,a.x2), y1=Math.min(a.y1,a.y2);
+    const x2=Math.max(a.x1,a.x2), y2=Math.max(a.y1,a.y2);
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+    return [{id:'tl',x:x1,y:y1},{id:'tc',x:mx,y:y1},{id:'tr',x:x2,y:y1},
+            {id:'ml',x:x1,y:my},                     {id:'mr',x:x2,y:my},
+            {id:'bl',x:x1,y:y2},{id:'bc',x:mx,y:y2},{id:'br',x:x2,y:y2}];
+  }
+  return [];
+}
+
+function hitTestHandle(handles, px, py) {
+  const r = 7 * (isGridActive() ? 1 : canvasScale);
+  for(const h of handles) {
+    if(Math.abs(px-h.x)<=r && Math.abs(py-h.y)<=r) return h.id;
+  }
+  return null;
+}
+
+function applyHandleDrag(a, hid, dx, dy) {
+  if(hid==='p1'){a.x1+=dx;a.y1+=dy; return;}
+  if(hid==='p2'){a.x2+=dx;a.y2+=dy; return;}
+  // rect / circle: map handle id to which edge(s) move
+  const leftEdge  = hid==='tl'||hid==='ml'||hid==='bl';
+  const rightEdge = hid==='tr'||hid==='mr'||hid==='br';
+  const topEdge   = hid==='tl'||hid==='tc'||hid==='tr';
+  const botEdge   = hid==='bl'||hid==='bc'||hid==='br';
+  // x1 is always left side, x2 right side (keep normalized via Math.min)
+  const x1=Math.min(a.x1,a.x2), x2=Math.max(a.x1,a.x2);
+  const y1=Math.min(a.y1,a.y2), y2=Math.max(a.y1,a.y2);
+  let nx1=x1, nx2=x2, ny1=y1, ny2=y2;
+  if(leftEdge)  nx1=Math.min(nx1+dx, nx2-2);
+  if(rightEdge) nx2=Math.max(nx2+dx, nx1+2);
+  if(topEdge)   ny1=Math.min(ny1+dy, ny2-2);
+  if(botEdge)   ny2=Math.max(ny2+dy, ny1+2);
+  a.x1=nx1; a.x2=nx2; a.y1=ny1; a.y2=ny2;
+}
+
+function getAnnoBounds(a) {
+  if(a.type==='text') {
+    const fs=a.fontSize||20;
+    return {x:a.x-4,y:a.y-fs-4,w:fs*a.text.length*0.6+8,h:fs+12};
+  }
+  if(a.type==='brush') {
+    const xs=a.pts.map(p=>p.x), ys=a.pts.map(p=>p.y);
+    const x1=Math.min(...xs),y1=Math.min(...ys),x2=Math.max(...xs),y2=Math.max(...ys);
+    const pad=a.lw||2;
+    return {x:x1-pad,y:y1-pad,w:x2-x1+pad*2,h:y2-y1+pad*2};
+  }
+  const x1=Math.min(a.x1,a.x2), y1=Math.min(a.y1,a.y2);
+  const x2=Math.max(a.x1,a.x2), y2=Math.max(a.y1,a.y2);
+  const pad=Math.max(a.lw||2,6);
+  return {x:x1-pad,y:y1-pad,w:x2-x1+pad*2,h:y2-y1+pad*2};
+}
+
+function hitTestAnno(a, px, py) {
+  const b=getAnnoBounds(a);
+  return px>=b.x && px<=b.x+b.w && py>=b.y && py<=b.y+b.h;
+}
+
+function moveAnno(a, dx, dy) {
+  if(a.type==='text'){a.x+=dx;a.y+=dy;}
+  else if(a.type==='brush'){a.pts=a.pts.map(p=>({x:p.x+dx,y:p.y+dy}));}
+  else{a.x1+=dx;a.y1+=dy;a.x2+=dx;a.y2+=dy;}
+}
+
+function distToSeg(px,py,x1,y1,x2,y2) {
+  const dx=x2-x1, dy=y2-y1, lenSq=dx*dx+dy*dy;
+  if(!lenSq) return Math.sqrt((px-x1)**2+(py-y1)**2);
+  const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/lenSq));
+  return Math.sqrt((px-(x1+t*dx))**2+(py-(y1+t*dy))**2);
+}
+
+// Hit-test only the stroke/outline of an annotation (not interior fill)
+// Used when a drawing tool is active: rect/circle interior is still drawable
+function hitTestAnnoOutline(a, px, py) {
+  const tol = 8 * (isGridActive() ? 1 : canvasScale);
+  if(a.type==='rect') {
+    const x1=Math.min(a.x1,a.x2), y1=Math.min(a.y1,a.y2);
+    const x2=Math.max(a.x1,a.x2), y2=Math.max(a.y1,a.y2);
+    const inH=px>=x1-tol && px<=x2+tol, inV=py>=y1-tol && py<=y2+tol;
+    return (inH&&(Math.abs(py-y1)<tol||Math.abs(py-y2)<tol))||
+           (inV&&(Math.abs(px-x1)<tol||Math.abs(px-x2)<tol));
+  }
+  if(a.type==='circle') {
+    const cx=(a.x1+a.x2)/2, cy=(a.y1+a.y2)/2;
+    const rx=Math.abs(a.x2-a.x1)/2, ry=Math.abs(a.y2-a.y1)/2;
+    if(!rx||!ry) return false;
+    const dist=Math.sqrt(((px-cx)/rx)**2+((py-cy)/ry)**2);
+    return Math.abs(dist-1) < tol/Math.min(rx,ry);
+  }
+  if(a.type==='line'||a.type==='arrow')
+    return distToSeg(px,py,a.x1,a.y1,a.x2,a.y2) < tol;
+  if(a.type==='brush') {
+    const pts=a.pts;
+    for(let i=0;i<pts.length-1;i++)
+      if(distToSeg(px,py,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y)<tol) return true;
+    return false;
+  }
+  if(a.type==='text') return hitTestAnno(a,px,py);
+  return false;
+}
+
+function updateHoverCursor(p) {
+  if(selectedAnnoIdx>=0) {
+    const hid=hitTestHandle(getHandles(curAnnos()[selectedAnnoIdx]),p.x,p.y);
+    if(hid){clickCanvas.style.cursor=HANDLE_CURSORS[hid]||'crosshair'; return;}
+  }
+  const hovering=curAnnos().some(a=>hitTestAnno(a,p.x,p.y));
+  if(hovering){clickCanvas.style.cursor='move'; return;}
+  // Check shape outline hover for canvas labels
+  const shapeHit=hitTestLabelShapeOutline(p.x,p.y);
+  clickCanvas.style.cursor=shapeHit?'move':'default';
+}
+
+// ====== ANNO EVENTS ======
+function bindAnnoEvents() {
+  // clickCanvas is topmost (z-index:11), so bind all events here
+  clickCanvas.addEventListener('mousedown', onAnnoDown);
+  clickCanvas.addEventListener('mousemove', e=>{ onAnnoMove(e); onClickCanvasMove(e); });
+  clickCanvas.addEventListener('mouseup', onAnnoUp);
+  clickCanvas.addEventListener('mouseleave', e=>{ onAnnoLeave(); canvasTooltip.style.display='none'; });
+  clickCanvas.addEventListener('click', onClickCanvasClick);
+  clickCanvas.addEventListener('contextmenu', e=>{e.preventDefault();});
+}
+
+function onAnnoDown(e) {
+  // If text input is in progress, clicking canvas commits it and stops
+  if(pendingTextCommit) { pendingTextCommit(); return; }
+
+  const p=getPos(e);
+
+  // No active tool → selection / move / resize
+  if(!activeTool) {
+    isMouseDown=true;
+    // Check canvas label hit first (works in any tool state)
+    const hitLb=hitTestCanvasLabel(p.x,p.y);
+    if(hitLb){
+      selectedLabelId=hitLb.id;
+      labelProps.color=hitLb.color||labelProps.color;
+      labelProps.shape=hitLb.shape||'none';
+      labelProps.lw=hitLb.lw||2;
+      renderPropPanel(); renderCanvasLabels();
+      // If click landed inside shape area (not on the label text element), start shape-body drag
+      if(hitLb.shape && hitLb.shape!=='none' && hitLb.sx!=null){
+        const _el=document.getElementById('cl-'+hitLb.id);
+        const _vr=viewport.getBoundingClientRect();
+        let _onLabel=false;
+        if(_el){const _r=_el.getBoundingClientRect();_onLabel=p.x>=(_r.left-_vr.left)&&p.x<=(_r.left-_vr.left+_r.width)&&p.y>=(_r.top-_vr.top)&&p.y<=(_r.top-_vr.top+_r.height);}
+        if(!_onLabel){
+          isDraggingAnno=true; activeHandle='shape-body';
+          dragOffX=p.x; dragOffY=p.y;
+          _shapeDragLb=hitLb;
+          _shapeDragStart={sx:hitLb.sx,sy:hitLb.sy,tx:hitLb.tx,ty:hitLb.ty,x:hitLb.x,y:hitLb.y};
+          saveHist();
+        }
+      }
+      return;
+    }
+    selectedLabelId=null;
+    // Check shape outline hit → drag entire label+shape
+    const shapeLb=hitTestLabelShapeOutline(p.x,p.y);
+    if(shapeLb){
+      selectedLabelId=shapeLb.id;
+      labelProps.color=shapeLb.color||labelProps.color;
+      labelProps.shape=shapeLb.shape||'none';
+      labelProps.lw=shapeLb.lw||2;
+      renderPropPanel(); renderCanvasLabels();
+      // Start shape drag
+      isDraggingAnno=true; activeHandle='shape-body';
+      dragOffX=p.x; dragOffY=p.y;
+      _shapeDragLb=shapeLb;
+      _shapeDragStart={sx:shapeLb.sx,sy:shapeLb.sy,tx:shapeLb.tx,ty:shapeLb.ty,x:shapeLb.x,y:shapeLb.y};
+      saveHist();
+      return;
+    }
+    // 1. Check handle hit on currently selected annotation
+    if(selectedAnnoIdx>=0) {
+      const hid=hitTestHandle(getHandles(curAnnos()[selectedAnnoIdx]),p.x,p.y);
+      if(hid) {
+        activeHandle=hid; isDraggingAnno=true;
+        dragOffX=p.x; dragOffY=p.y;
+        saveHist();
+        return;
+      }
+    }
+    // 2. Check body hit (pick topmost)
+    let hit=-1;
+    for(let i=curAnnos().length-1;i>=0;i--) {
+      if(hitTestAnno(curAnnos()[i],p.x,p.y)){hit=i;break;}
+    }
+    if(hit>=0) {
+      selectedAnnoIdx=hit; activeHandle='body'; isDraggingAnno=true;
+      dragOffX=p.x; dragOffY=p.y;
+      syncPropsFromAnno(curAnnos()[hit]);
+      activeTool=curAnnos()[hit].type;
+      highlightSidebarTool(activeTool);
+      updateCursor();
+      saveHist();
+    } else {
+      selectedAnnoIdx=-1; activeHandle=null; isDraggingAnno=false;
+      activeTool=null;
+      highlightSidebarTool(null);
+      updateCursor();
+    }
+    drawAnnos(); renderPropPanel(); return;
+  }
+
+  isMouseDown=true;
+
+  // Check canvas label hit for any non-eraser tool
+  if(!activeTool.startsWith('e-') && activeTool!=='label') {
+    const hitLb=hitTestCanvasLabel(p.x,p.y);
+    if(hitLb){
+      selectedLabelId=hitLb.id;
+      labelProps.color=hitLb.color||labelProps.color;
+      labelProps.shape=hitLb.shape||'none';
+      labelProps.lw=hitLb.lw||2;
+      renderPropPanel(); renderCanvasLabels();
+      return;
+    }
+  }
+
+  // Tool active but not erasing → check handles/outline of existing annotations first
+  if(!activeTool.startsWith('e-')) {
+    // 1. If already selected, check handle hit first (resize/stretch)
+    if(selectedAnnoIdx>=0) {
+      const hid=hitTestHandle(getHandles(curAnnos()[selectedAnnoIdx]),p.x,p.y);
+      if(hid) {
+        activeHandle=hid; isDraggingAnno=true;
+        dragOffX=p.x; dragOffY=p.y;
+        saveHist(); return;
+      }
+    }
+    // 2. Check outline hit → select + move
+    let outlineHit=-1;
+    for(let i=curAnnos().length-1;i>=0;i--) {
+      if(hitTestAnnoOutline(curAnnos()[i],p.x,p.y)){outlineHit=i;break;}
+    }
+    if(outlineHit>=0) {
+      selectedAnnoIdx=outlineHit; activeHandle='body'; isDraggingAnno=true;
+      dragOffX=p.x; dragOffY=p.y;
+      syncPropsFromAnno(curAnnos()[outlineHit]);
+      activeTool=curAnnos()[outlineHit].type;
+      highlightSidebarTool(activeTool);
+      updateCursor();
+      saveHist(); drawAnnos(); renderPropPanel(); return;
+    }
+    // 3. Click on empty area → deselect, restore tool highlight, then fall through to draw
+    if(selectedAnnoIdx>=0) { selectedAnnoIdx=-1; activeHandle=null; highlightSidebarTool(activeTool); drawAnnos(); renderPropPanel(); }
+  }
+
+  startX=p.x; startY=p.y;
+  if(activeTool==='brush') brushPoints=[{x:p.x,y:p.y}];
+  if(activeTool==='text') {
+    textAnnoX=p.x; textAnnoY=p.y;
+    showTextOverlay();
+    isMouseDown=false; return;
+  }
+  if(activeTool==='label') {
+    // Check if clicking an existing label to select it
+    const hitLb=hitTestCanvasLabel(p.x,p.y);
+    if(hitLb){
+      selectedLabelId=hitLb.id;
+      labelProps.color=hitLb.color||labelProps.color;
+      labelProps.shape=hitLb.shape||'none';
+      labelProps.lw=hitLb.lw||2;
+      renderPropPanel();
+      renderCanvasLabels();
+      isMouseDown=true; // allow dragging
+      return;
+    }
+    // Start creating new label: mousedown = label position
+    selectedLabelId=null;
+    startX=p.x; startY=p.y;
+  }
+  saveHist();
+}
+
+function onAnnoMove(e) {
+  // Grid pan (when no tool active and dragging in grid mode)
+  if(isGridActive() && !activeTool && gridPanStart && isMouseDown) {
+    gridPanX=e.clientX-gridPanStart.x;
+    gridPanY=e.clientY-gridPanStart.y;
+    applyGridTransform(); return;
+  }
+  const p=getPos(e);
+
+  // No active tool → select/hover mode
+  if(!activeTool) {
+    if(isMouseDown && isDraggingAnno && activeHandle==='shape-body' && _shapeDragLb) {
+      const dx=p.x-dragOffX, dy=p.y-dragOffY;
+      _shapeDragLb.sx+=dx; _shapeDragLb.sy+=dy;
+      _shapeDragLb.tx+=dx; _shapeDragLb.ty+=dy;
+      _shapeDragLb.x+=dx; _shapeDragLb.y+=dy;
+      dragOffX=p.x; dragOffY=p.y;
+      renderCanvasLabels(); drawAnnos();
+    } else if(isMouseDown && isDraggingAnno && selectedAnnoIdx>=0) {
+      const dx=p.x-dragOffX, dy=p.y-dragOffY;
+      if(activeHandle==='body') moveAnno(curAnnos()[selectedAnnoIdx],dx,dy);
+      else applyHandleDrag(curAnnos()[selectedAnnoIdx],activeHandle,dx,dy);
+      dragOffX=p.x; dragOffY=p.y;
+      drawAnnos();
+    } else {
+      updateHoverCursor(p);
+    }
+    return;
+  }
+
+  // Tool active: if dragging an annotation (body move or handle resize)
+  if(isMouseDown && isDraggingAnno && selectedAnnoIdx>=0) {
+    const dx=p.x-dragOffX, dy=p.y-dragOffY;
+    if(activeHandle==='body') moveAnno(curAnnos()[selectedAnnoIdx],dx,dy);
+    else applyHandleDrag(curAnnos()[selectedAnnoIdx],activeHandle,dx,dy);
+    dragOffX=p.x; dragOffY=p.y;
+    drawAnnos(); return;
+  }
+
+  // eraser circle
+  if(activeTool.startsWith('e-')) {
+    eraserCircle.style.display='block';
+    eraserCircle.style.left=e.clientX+'px'; eraserCircle.style.top=e.clientY+'px';
+    const sz=eraserSize/canvasScale;
+    eraserCircle.style.width=(sz*2)+'px'; eraserCircle.style.height=(sz*2)+'px';
+  } else { eraserCircle.style.display='none'; }
+
+  // Hover cursor: check handles of selected annotation, then outline (only when not erasing)
+  if(!isMouseDown && !activeTool.startsWith('e-')) {
+    if(selectedAnnoIdx>=0) {
+      const hid=hitTestHandle(getHandles(curAnnos()[selectedAnnoIdx]),p.x,p.y);
+      if(hid){clickCanvas.style.cursor=HANDLE_CURSORS[hid]||'crosshair'; return;}
+    }
+    const onOutline=curAnnos().some(a=>hitTestAnnoOutline(a,p.x,p.y));
+    if(onOutline){clickCanvas.style.cursor='move'; return;}
+    const shapeHit=hitTestLabelShapeOutline(p.x,p.y);
+    clickCanvas.style.cursor=shapeHit?'move':'crosshair';
+    return;
+  }
+
+  if(!isMouseDown) return;
+  if(activeTool==='label') {
+    drawAnnos();
+    annoCtx.save();
+    const sh=labelProps.shape;
+    const lc=deriveLabelColors(labelProps.color).lineColor;
+    annoCtx.strokeStyle=lc;
+    annoCtx.lineWidth=labelProps.lw||2;
+    annoCtx.setLineDash([]);
+    if(sh==='rect'){
+      annoCtx.beginPath(); annoCtx.strokeRect(startX,startY,p.x-startX,p.y-startY);
+    } else if(sh==='circle'){
+      const cx=(startX+p.x)/2, cy=(startY+p.y)/2;
+      const rx=Math.abs(p.x-startX)/2, ry=Math.abs(p.y-startY)/2;
+      annoCtx.beginPath(); annoCtx.ellipse(cx,cy,rx||1,ry||1,0,0,Math.PI*2); annoCtx.stroke();
+    } else if(sh==='arrow'){
+      drawArrow(annoCtx,startX,startY,p.x,p.y,labelProps.lw||2);
+    } else {
+      // none: dashed line preview
+      annoCtx.lineWidth=1.5;
+      annoCtx.setLineDash([4,3]);
+      annoCtx.beginPath(); annoCtx.moveTo(startX,startY); annoCtx.lineTo(p.x,p.y); annoCtx.stroke();
+      annoCtx.setLineDash([]);
+    }
+    annoCtx.restore();
+    return;
+  }
+  if(activeTool==='brush') { brushPoints.push({x:p.x,y:p.y}); drawAnnos(p); return; }
+  if(activeTool==='e-mark') { applyEraser(markCtx,p); return; }
+  if(activeTool==='e-ps') { applyEraser(mGenCtx,p); updatePSMask(); return; }
+  drawAnnos(p);
+}
+
+function onAnnoUp(e) {
+  if(!isMouseDown) return;
+  isMouseDown=false;
+  if(gridPanStart){gridPanStart=null;return;}
+
+  // End any drag/resize (both no-tool and tool-active-outline-move)
+  if(isDraggingAnno) {
+    isDraggingAnno=false; activeHandle=null;
+    _shapeDragLb=null; _shapeDragStart=null;
+    return;
+  }
+
+  if(!activeTool) return;
+
+  const p=getPos(e);
+  if(activeTool==='label') {
+    const dx=p.x-startX, dy=p.y-startY;
+    if(Math.sqrt(dx*dx+dy*dy)<8) { drawAnnos(); return; }
+    saveHist();
+    labelCounter++;
+    const text='请输入问题';
+    const id='cl'+Date.now()+Math.random().toString(36).slice(2,6);
+    const sh=labelProps.shape;
+    let lx, ly, tx, ty, sx, sy;
+    if(sh==='rect'||sh==='circle'){
+      sx=startX; sy=startY; tx=p.x; ty=p.y;
+      const _lp=placeLabelOutside(Math.min(sx,tx),Math.min(sy,ty),Math.max(sx,tx),Math.max(sy,ty));
+      lx=_lp.x; ly=_lp.y;
+    } else if(sh==='arrow'){
+      sx=startX; sy=startY; tx=p.x; ty=p.y;
+      const _lp=placeLabelOutside(Math.min(sx,tx),Math.min(sy,ty),Math.max(sx,tx),Math.max(sy,ty));
+      lx=_lp.x; ly=_lp.y;
+    } else {
+      sx=startX; sy=startY;
+      tx=p.x; ty=p.y;
+      const _lp=placeLabelOutside(tx, ty, tx, ty);
+      lx=_lp.x; ly=_lp.y;
+    }
+    const dc=deriveLabelColors(labelProps.color);
+    canvasLabels.push({id, text:'#'+labelCounter+' '+text, cls:'qa-minor',
+      x:lx, y:ly, tx:tx, ty:ty, sx:sx, sy:sy,
+      shape:sh, lw:labelProps.lw, color:labelProps.color,
+      bgColor:dc.bgColor, textColor:dc.textColor, lineColor:dc.lineColor});
+    selectedLabelId=id;
+    renderCanvasLabels();
+    renderPropPanel();
+    return;
+  }
+  if(['rect','circle','line','arrow'].includes(activeTool)) {
+    curAnnos().push({type:activeTool,x1:startX,y1:startY,x2:p.x,y2:p.y,color:annoProps.color,lw:annoProps.lw,dashed:annoProps.dashed});
+  } else if(activeTool==='brush') {
+    brushPoints.push({x:p.x,y:p.y});
+    curAnnos().push({type:'brush',pts:[...brushPoints],color:annoProps.color,lw:annoProps.lw});
+    brushPoints=[];
+  }
+  drawAnnos();
+}
+
+function onAnnoLeave() {
+  eraserCircle.style.display='none';
+  if(isMouseDown) onAnnoUp({clientX:0,clientY:0});
+}
+
+function showTextOverlay() {
+  const ov=document.getElementById('text-input-overlay');
+  const vr=viewport.getBoundingClientRect();
+  let left, top, fontSize;
+  if(isGridActive()) {
+    // In grid mode: textAnnoX/Y are grid-container screen coords
+    const gc=document.getElementById('grid-container');
+    const gr=gc.getBoundingClientRect();
+    left=(gr.left-vr.left+textAnnoX)+'px';
+    top=(gr.top-vr.top+textAnnoY)+'px';
+    fontSize=annoProps.fontSize+'px';
+  } else {
+    const lr=layers.getBoundingClientRect();
+    left=(lr.left-vr.left+textAnnoX/canvasScale)+'px';
+    top=(lr.top-vr.top+textAnnoY/canvasScale)+'px';
+    fontSize=Math.round(annoProps.fontSize/canvasScale)+'px';
+  }
+  ov.style.left=left; ov.style.top=top;
+  ov.style.fontSize=fontSize;
+  ov.style.color=annoProps.color;
+  ov.style.fontWeight=annoProps.bold?'bold':'normal';
+  ov.style.fontStyle=annoProps.italic?'italic':'normal';
+  ov.style.textDecoration=annoProps.underline?'underline':'none';
+  ov.value='';
+  ov.style.display='block';
+
+  let committed=false;
+  function commitText() {
+    if(committed) return; committed=true;
+    pendingTextCommit=null;
+    const txt=ov.value.trim();
+    if(txt) {
+      saveHist();
+      curAnnos().push({type:'text',x:textAnnoX,y:textAnnoY,text:txt,
+        color:annoProps.color,fontSize:annoProps.fontSize,
+        bold:annoProps.bold,italic:annoProps.italic,underline:annoProps.underline});
+      drawAnnos();
+    }
+    ov.style.display='none';
+  }
+  pendingTextCommit=commitText;
+
+  ov.onkeydown=ev=>{
+    if(ev.key==='Escape'){committed=true; pendingTextCommit=null; ov.style.display='none';}
+    if(ev.key==='Enter'&&!ev.shiftKey){ev.preventDefault(); commitText();}
+  };
+  ov.onblur=()=>{ if(!suppressTextBlur) setTimeout(commitText, 80); };
+  setTimeout(()=>ov.focus(), 0);
+}
+
+function applyEraser(ctx, p) {
+  ctx.save();
+  ctx.globalCompositeOperation='destination-out';
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,eraserSize,0,Math.PI*2);
+  ctx.fillStyle='rgba(0,0,0,1)';
+  ctx.fill();
+  ctx.restore();
+}
+
+function updatePSMask() {
+  if(!psImg) return;
+  const url=mGenCanvas.toDataURL();
+  psLayer.style.webkitMaskImage='url('+url+')';
+  psLayer.style.maskImage='url('+url+')';
+  psLayer.style.webkitMaskSize='100% 100%';
+  psLayer.style.maskSize='100% 100%';
+}
+
+// ====== DRAW ANNOS ======
+function drawAnnos(liveEnd) {
+  const ctx=annoCtx, cw=annoCanvas.width, ch=annoCanvas.height;
+  ctx.clearRect(0,0,cw,ch);
+  curAnnos().forEach((a,i)=>{
+    drawAnno(ctx,a);
+    if(i===selectedAnnoIdx) drawSelectionHandles(ctx,a);
+  });
+  // live preview
+  if(isMouseDown && activeTool && liveEnd) {
+    const p=annoProps;
+    if(activeTool==='brush') {
+      drawBrushPts(ctx,brushPoints,p.color,p.lw);
+    } else if(['rect','circle','line','arrow'].includes(activeTool)) {
+      drawAnno(ctx,{type:activeTool,x1:startX,y1:startY,x2:liveEnd.x,y2:liveEnd.y,color:p.color,lw:p.lw,dashed:p.dashed});
+    }
+  }
+  // Draw label arrows (must be at end so they're not cleared)
+  drawLabelArrowsOnly();
+}
+function refreshGridPanels() { if(isActive) renderCurrentMode(); }
+// Legacy: single mode panel render (unused, kept for compat)
+function renderModePanel(mode) {}
+
+function drawSelectionHandles(ctx, a) {
+  const cs = isGridActive() ? 1 : (canvasScale || 1);
+  const handles = getHandles(a);
+  ctx.save();
+
+  if(handles.length === 2) {
+    handles.forEach(h=>{
+      const r = 6 * cs;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(h.x, h.y, r, 0, Math.PI*2);
+      ctx.fillStyle='#ffffff'; ctx.fill();
+      ctx.strokeStyle='#007AFF'; ctx.lineWidth=1.5*cs; ctx.stroke();
+    });
+  } else {
+    const b=getAnnoBounds(a);
+    ctx.strokeStyle='#007AFF';
+    ctx.lineWidth=1.5*cs;
+    ctx.setLineDash([5*cs, 3*cs]);
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.setLineDash([]);
+    const hs = 7 * cs;
+    handles.forEach(h=>{
+      ctx.fillStyle='#ffffff';
+      ctx.fillRect(h.x-hs/2, h.y-hs/2, hs, hs);
+      ctx.strokeStyle='#007AFF';
+      ctx.lineWidth=1.5*cs;
+      ctx.strokeRect(h.x-hs/2, h.y-hs/2, hs, hs);
+    });
+  }
+
+  if(!handles.length) {
+    const b=getAnnoBounds(a);
+    ctx.strokeStyle='#007AFF';
+    ctx.lineWidth=1.5*cs;
+    ctx.setLineDash([5*cs, 3*cs]);
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+}
+
+function drawAnno(ctx,a) {
+  ctx.save();
+  ctx.strokeStyle=a.color; ctx.fillStyle=a.color; ctx.lineWidth=a.lw||2;
+  if(a.dashed){const lw=a.lw||2; ctx.setLineDash([lw*3, lw*2]);} else ctx.setLineDash([]);
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  switch(a.type) {
+    case 'rect':
+      ctx.beginPath(); ctx.strokeRect(a.x1,a.y1,a.x2-a.x1,a.y2-a.y1); break;
+    case 'circle': {
+      const cx=(a.x1+a.x2)/2, cy=(a.y1+a.y2)/2;
+      const rx=Math.abs(a.x2-a.x1)/2, ry=Math.abs(a.y2-a.y1)/2;
+      ctx.beginPath(); ctx.ellipse(cx,cy,rx||1,ry||1,0,0,Math.PI*2); ctx.stroke(); break;
+    }
+    case 'line':
+      ctx.beginPath(); ctx.moveTo(a.x1,a.y1); ctx.lineTo(a.x2,a.y2); ctx.stroke(); break;
+    case 'arrow':
+      drawArrow(ctx,a.x1,a.y1,a.x2,a.y2,a.lw||2); break;
+    case 'text': {
+      const fs=a.fontSize||20;
+      let fstr='';
+      if(a.bold) fstr+='bold ';
+      if(a.italic) fstr+='italic ';
+      fstr+=fs+'px sans-serif';
+      ctx.font=fstr; ctx.fillStyle=a.color;
+      ctx.fillText(a.text,a.x,a.y);
+      if(a.underline){
+        const tw=ctx.measureText(a.text).width;
+        ctx.beginPath(); ctx.moveTo(a.x,a.y+2); ctx.lineTo(a.x+tw,a.y+2); ctx.lineWidth=1; ctx.stroke();
+      }
+      break;
+    }
+    case 'brush':
+      drawBrushPts(ctx,a.pts,a.color,a.lw); break;
+  }
+  ctx.restore();
+}
+
+function drawArrow(ctx,x1,y1,x2,y2,lw) {
+  const angle=Math.atan2(y2-y1,x2-x1);
+  const headLen=Math.max(lw*4,16);
+  const headAngle=0.45;
+
+  // Draw line exactly like the line tool (same lw, same style)
+  ctx.save();
+  ctx.lineWidth=lw;
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
+  // Filled triangle arrowhead at end point
+  ctx.fillStyle=ctx.strokeStyle;
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-headLen*Math.cos(angle-headAngle),y2-headLen*Math.sin(angle-headAngle));
+  ctx.lineTo(x2-headLen*Math.cos(angle+headAngle),y2-headLen*Math.sin(angle+headAngle));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawBrushPts(ctx,pts,color,lw) {
+  if(!pts||pts.length<2) return;
+  ctx.strokeStyle=color; ctx.lineWidth=lw||2;
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+  ctx.stroke();
+}
+
+// ====== HISTORY ======
+function saveHist() {
+  const snap={a:JSON.stringify(annos),ga:JSON.stringify(gridAnnos),m:markCanvas.toDataURL(),k:mGenCanvas.toDataURL(),
+    cl:JSON.stringify(canvasLabels),lc:labelCounter};
+  history.push(snap);
+  if(history.length>50) history.shift();
+  redoHistory=[];
+  updateUndoRedo();
+}
+function updateUndoRedo() {
+  document.getElementById('btn-undo').style.opacity=history.length?'1':'0.4';
+  document.getElementById('btn-redo').style.opacity=redoHistory.length?'1':'0.4';
+}
+function undo() {
+  if(!history.length) return;
+  const cur={a:JSON.stringify(annos),ga:JSON.stringify(gridAnnos),m:markCanvas.toDataURL(),k:mGenCanvas.toDataURL(),
+    cl:JSON.stringify(canvasLabels),lc:labelCounter};
+  redoHistory.push(cur);
+  const snap=history.pop();
+  restoreSnap(snap); updateUndoRedo();
+}
+function redo() {
+  if(!redoHistory.length) return;
+  const cur={a:JSON.stringify(annos),ga:JSON.stringify(gridAnnos),m:markCanvas.toDataURL(),k:mGenCanvas.toDataURL(),
+    cl:JSON.stringify(canvasLabels),lc:labelCounter};
+  history.push(cur);
+  const snap=redoHistory.pop();
+  restoreSnap(snap); updateUndoRedo();
+}
+function restoreSnap(snap) {
+  annos=JSON.parse(snap.a);
+  if(snap.ga) gridAnnos=JSON.parse(snap.ga);
+  if(snap.cl){ canvasLabels=JSON.parse(snap.cl); labelCounter=snap.lc||0; selectedLabelId=null; }
+  const imgM=new Image(); imgM.onload=()=>{markCtx.clearRect(0,0,markCanvas.width,markCanvas.height);markCtx.drawImage(imgM,0,0);}; imgM.src=snap.m;
+  const imgK=new Image(); imgK.onload=()=>{mGenCtx.clearRect(0,0,mGenCanvas.width,mGenCanvas.height);mGenCtx.drawImage(imgK,0,0);}; imgK.src=snap.k;
+  renderCanvasLabels();
+  drawAnnos();
+  renderPropPanel();
+}
+function bindKeyboard() {
+  document.addEventListener('keydown', e=>{
+    const tag=document.activeElement.tagName;
+    const isInput=tag==='INPUT'||tag==='TEXTAREA';
+    if(e.ctrlKey&&e.key==='z'){e.preventDefault();undo();}
+    if(e.ctrlKey&&e.key==='y'){e.preventDefault();redo();}
+    if(!isInput && (e.key==='Delete'||e.key==='Backspace') && selectedAnnoIdx>=0) {
+      e.preventDefault();
+      saveHist();
+      curAnnos().splice(selectedAnnoIdx,1);
+      selectedAnnoIdx=-1;
+      drawAnnos();
+    }
+    // Backspace/Delete to remove selected canvas label
+    if(!isInput && (e.key==='Delete'||e.key==='Backspace') && selectedLabelId) {
+      e.preventDefault();
+      removeCanvasLabel(selectedLabelId);
+      selectedLabelId=null;
+      renumberLabels();
+      renderCanvasLabels();
+      renderPropPanel();
+    }
+  });
+}
+
+// ====== GRID VIEW ======
+function cachePanel(mode) {
+  if(!panelCache[mode]) panelCache[mode]=document.createElement('canvas');
+  const c=panelCache[mode];
+  if(mode==='vsplit') {
+    const vw=viewport.clientWidth,vh=viewport.clientHeight;
+    if(!vw||!vh) return;
+    c.width=vw; c.height=vh;
+    const ctx=c.getContext('2d');
+    ctx.clearRect(0,0,vw,vh);
+    ctx.fillStyle='#0d0d1d'; ctx.fillRect(0,0,vw,vh);
+    const halfH=Math.floor(vh/2);
+    if(psImg) {
+      const s=Math.min(vw/psImg.naturalWidth,halfH/psImg.naturalHeight);
+      const dw=Math.floor(psImg.naturalWidth*s),dh=Math.floor(psImg.naturalHeight*s);
+      ctx.drawImage(psImg,Math.floor((vw-dw)/2),Math.floor((halfH-dh)/2),dw,dh);
+    }
+    ctx.strokeStyle='#2a2a3a'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(0,halfH); ctx.lineTo(vw,halfH); ctx.stroke();
+    if(gameImg) {
+      const s=Math.min(vw/gameImg.naturalWidth,halfH/gameImg.naturalHeight);
+      const dw=Math.floor(gameImg.naturalWidth*s),dh=Math.floor(gameImg.naturalHeight*s);
+      ctx.drawImage(gameImg,Math.floor((vw-dw)/2),halfH+Math.floor((halfH-dh)/2),dw,dh);
+    }
+    return;
+  }
+  const w=markCanvas.width, h=markCanvas.height;
+  if(!w||!h) return;
+  c.width=w; c.height=h;
+  const ctx=c.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  if(mode==='findiff') {
+    ctx.drawImage(markCanvas,0,0);
+  } else {
+    if(gameImg) ctx.drawImage(gameImg,0,0,w,h);
+    ctx.drawImage(markCanvas,0,0);
+  }
+}
+function updateGrid() { /* no-op: replaced by renderCurrentMode() */ }
+function renderModePanel(mode) { /* no-op */ }
+
+// ====== MODES ======
+function toggleCompare() {
+  if(!gameImg||!psImg) return;
+  isActive = !isActive;
+  const startBtn = document.getElementById('btn-start-compare');
+  const modeBtns = ['mode-compare','mode-outline','mode-findiff'];
+  if(isActive) {
+    startBtn.textContent = '■ 取消对比';
+    startBtn.classList.add('active');
+    startBtn.classList.remove('cta-ready');
+    modeBtns.forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=false; });
+    updateUploadGuide();
+    updateQATagsState();
+    setMode(currentMode);
+  } else {
+    startBtn.textContent = '▶ 开始对比';
+    startBtn.classList.remove('active');
+    startBtn.classList.toggle('cta-ready', !!(gameImg&&psImg));
+    modeBtns.forEach(id=>{ const el=document.getElementById(id); if(el){ el.disabled=true; el.classList.remove('active'); } });
+    // Restore derived state vars
+    isComparing=false; isOutline=false; isFindiff=false; isVSplit=false;
+    if(markCtx) markCtx.clearRect(0,0,markCanvas.width,markCanvas.height);
+    layers.style.display='none';
+    splitCanvas.style.display='none';
+    document.getElementById('sensitivity-pills').style.display='none';
+    updateUploadGuide();
+    updateQATagsState();
+  }
+}
+
+function setMode(mode) {
+  currentMode = mode;
+  // Highlight active mode button
+  ['compare','outline','findiff'].forEach(m=>{
+    const el=document.getElementById('mode-'+m); if(el) el.classList.toggle('active', m===mode);
+  });
+  // Sensitivity pills: show in 差异对比 and 轮廓对比
+  const sp = document.getElementById('sensitivity-pills');
+  if(sp) sp.style.display = (isActive && (mode==='compare'||mode==='outline')) ? 'flex' : 'none';
+  // Eraser labels
+  updateEraserLabels();
+  if(!isActive) return;
+  renderCurrentMode();
+}
+
+function renderCurrentMode() {
+  if(!gameImg) return;
+  if(!syncCanvasSize()) return;
+  splitCanvas.style.display='none';
+  // Single canvas with overlay
+  layers.style.display='block';
+  isComparing = currentMode==='compare';
+  isOutline   = currentMode==='outline';
+  isFindiff   = currentMode==='findiff';
+  isVSplit    = false;
+  markCtx.clearRect(0,0,markCanvas.width,markCanvas.height);
+  markCanvas.style.display='block';
+  if(currentMode==='compare') runAnalysis();
+  else if(currentMode==='outline') renderOutline();
+  else if(currentMode==='findiff') renderFindiff();
+}
+
+function updateEraserLabels() {
+  const eMarkEl = document.getElementById('tool-e-mark');
+  const ePsEl   = document.getElementById('tool-e-ps');
+  const eMarkLabel = eMarkEl && eMarkEl.querySelector('.sb-label');
+  const ePsLabel   = ePsEl   && ePsEl.querySelector('.sb-label');
+  const nameMap = {
+    compare: ['擦红点','擦设计稿'],
+    outline: ['擦轮廓','擦设计稿'],
+    findiff: ['擦不同','擦设计稿'],
+  };
+  const [mn, pn] = nameMap[currentMode] || ['擦提示','擦设稿'];
+  if(eMarkLabel) eMarkLabel.textContent = mn;
+  if(ePsLabel)   ePsLabel.textContent   = pn;
+  if(eMarkEl){ eMarkEl.disabled=false; eMarkEl.style.opacity=''; }
+  if(ePsEl)  { ePsEl.disabled=false;   ePsEl.style.opacity=''; }
+}
+
+function setSensitivity(val) {
+  sensitivityVal = val;
+  document.querySelectorAll('.sens-pill').forEach(p=>{
+    p.classList.toggle('active', +p.dataset.val===val);
+  });
+  if(isActive && currentMode==='compare'){
+    if(val===0){ markCtx.clearRect(0,0,markCanvas.width,markCanvas.height); }
+    else runAnalysis();
+  }
+  if(isActive && currentMode==='outline'){
+    if(val===0){ markCtx.clearRect(0,0,markCanvas.width,markCanvas.height); }
+    else renderOutline();
+  }
+}
+function renderFindiff() {
+  if(!syncCanvasSize()) return;
+  const w=markCanvas.width, h=markCanvas.height;
+  const off=document.createElement('canvas'); off.width=w; off.height=h;
+  const octx=off.getContext('2d');
+  octx.drawImage(gameImg,0,0,w,h); const d1=octx.getImageData(0,0,w,h).data;
+  octx.clearRect(0,0,w,h); octx.drawImage(psImg,0,0,w,h); const d2=octx.getImageData(0,0,w,h).data;
+  const out=markCtx.createImageData(w,h);
+  for(let i=0;i<d1.length;i+=4){
+    const dr=Math.abs(d1[i]-d2[i]);
+    const dg=Math.abs(d1[i+1]-d2[i+1]);
+    const db=Math.abs(d1[i+2]-d2[i+2]);
+    const diff=dr+dg+db;
+    if(diff>15){
+      // 差异像素：放大色差，暖色高亮
+      out.data[i]=Math.min(255,dr*3);
+      out.data[i+1]=Math.min(255,dg*2);
+      out.data[i+2]=Math.min(255,db*2);
+      out.data[i+3]=255;
+    } else {
+      // 相同像素：黑色
+      out.data[i]=0; out.data[i+1]=0; out.data[i+2]=0; out.data[i+3]=255;
+    }
+  }
+  markCtx.putImageData(out,0,0);
+  markCanvas.style.display='block';
+}
+
+// ====== AUTO DIAGNOSE ======
+let isDiagMode = false;
+async function autoDiagnose() {
+  if(!gameImg||!psImg||!gameImg.naturalWidth||!psImg.naturalWidth){
+    alert('请先上传线上截图和设计稿'); return;
+  }
+  const btn = document.getElementById('btn-auto-diag');
+  if (isDiagMode) {
+    isDiagMode = false;
+    btn.textContent = '🔍 一键诊断';
+    btn.classList.remove('active');
+    canvasLabels=canvasLabels.filter(l=>l._auto!==true);
+    renderCanvasLabels();
+    return;
+  }
+  isDiagMode = true;
+  btn.textContent = '⏳ 诊断中...';
+  btn.classList.add('active');
+  btn.disabled = true;
+  generateReport();
+  if(!reportData||!reportData.regions.length){
+    if(!reportData) { btn.textContent='🔍 一键诊断'; btn.classList.remove('active'); isDiagMode=false; btn.disabled=false; alert('请先点击「开始对比」再使用一键诊断'); return; }
+    // 0 regions = no differences found
+    btn.textContent = '✕ 取消诊断'; btn.disabled = false;
+    return;
+  }
+  // If AI configured, use AI to classify each region
+  const useAI = aiConfig.enabled && aiConfig.model;
+  if(useAI){
+    btn.textContent = '⏳ AI分析 0/'+Math.min(8,reportData.regions.length);
+    try{
+      await aiClassifyRegions(reportData.regions, reportData.w, reportData.h, (done,total)=>{
+        btn.textContent = '⏳ AI分析 '+done+'/'+total;
+      });
+    }catch(e){/* fallback to algorithm results */}
+  }
+  btn.textContent = '✕ 取消诊断';
+  btn.disabled = false;
+  // Refresh report panel with updated analysis
+  if(typeof renderReport==='function') renderReport();
+  autoPlaceReportLabels(reportData.regions);
+}
+
+// ====== PIXEL ANALYSIS ======
+function getImageData(img, w, h) {
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+  return ctx.getImageData(0,0,w,h);
+}
+
+function runAnalysis() {
+  if(!gameImg||!psImg||!gameImg.naturalWidth||!psImg.naturalWidth){ return; }
+  if(!syncCanvasSize()) return;
+  const w=markCanvas.width, h=markCanvas.height;
+  const off=document.createElement('canvas'); off.width=w; off.height=h;
+  const octx=off.getContext('2d');
+  octx.drawImage(gameImg,0,0,w,h); const d1=octx.getImageData(0,0,w,h).data;
+  octx.clearRect(0,0,w,h); octx.drawImage(psImg,0,0,w,h); const d2=octx.getImageData(0,0,w,h).data;
+
+  markCtx.clearRect(0,0,w,h);
+  markCtx.fillStyle='rgba(255,0,0,0.7)';
+  const threshold=sensitivityVal*3;
+  for(let i=0;i<d1.length;i+=4){
+    if(Math.abs(d1[i]-d2[i])+Math.abs(d1[i+1]-d2[i+1])+Math.abs(d1[i+2]-d2[i+2])>threshold)
+      markCtx.fillRect((i/4)%w,Math.floor((i/4)/w),1,1);
+  }
+  markCanvas.style.display='block';
+  if(isDiagMode) generateReport();
+}
+
+// ====== SSIM ======
+function computeSSIM(g1,g2,w,h){
+  const C1=6.5025,C2=58.5225;
+  const blockSize=8;
+  const bw=Math.floor(w/blockSize),bh=Math.floor(h/blockSize);
+  let ssimSum=0,ssimCount=0,ssimMin=1;
+  for(let by=0;by<bh;by++){
+    for(let bx=0;bx<bw;bx++){
+      let sum1=0,sum2=0,sum11=0,sum22=0,sum12=0;
+      const n=blockSize*blockSize;
+      for(let dy=0;dy<blockSize;dy++){
+        for(let dx=0;dx<blockSize;dx++){
+          const pi=(by*blockSize+dy)*w+(bx*blockSize+dx);
+          const v1=g1[pi],v2=g2[pi];
+          sum1+=v1;sum2+=v2;sum11+=v1*v1;sum22+=v2*v2;sum12+=v1*v2;
+        }
+      }
+      const mu1=sum1/n,mu2=sum2/n;
+      const s1=sum11/n-mu1*mu1,s2=sum22/n-mu2*mu2,s12=sum12/n-mu1*mu2;
+      const ssim=((2*mu1*mu2+C1)*(2*s12+C2))/((mu1*mu1+mu2*mu2+C1)*(s1+s2+C2));
+      ssimSum+=ssim; ssimCount++;
+      if(ssim<ssimMin) ssimMin=ssim;
+    }
+  }
+  return {mean:ssimCount?ssimSum/ssimCount:1,min:ssimMin};
+}
+
+// ====== DELTA-E & LAB ======
+function rgb2lab(r,g,b){
+  r/=255;g/=255;b/=255;
+  r=r>0.04045?Math.pow((r+0.055)/1.055,2.4):r/12.92;
+  g=g>0.04045?Math.pow((g+0.055)/1.055,2.4):g/12.92;
+  b=b>0.04045?Math.pow((b+0.055)/1.055,2.4):b/12.92;
+  let x=(r*0.4124564+g*0.3575761+b*0.1804375)/0.95047;
+  let y=(r*0.2126729+g*0.7151522+b*0.0721750);
+  let z=(r*0.0193339+g*0.1191920+b*0.9503041)/1.08883;
+  const f=v=>v>0.008856?Math.cbrt(v):7.787*v+16/116;
+  x=f(x);y=f(y);z=f(z);
+  return[116*y-16,500*(x-y),200*(y-z)];
+}
+function computeDeltaE(d1,d2,totalPixels){
+  let deSum=0,deLSum=0,deCSum=0,deCount=0;
+  const deThreshold=5;
+  const deMap=new Float32Array(totalPixels);
+  const diffMap=new Uint8Array(totalPixels);
+  for(let i=0;i<totalPixels;i++){
+    const o=i*4;
+    const [L1,a1,b1]=rgb2lab(d1[o],d1[o+1],d1[o+2]);
+    const [L2,a2,b2]=rgb2lab(d2[o],d2[o+1],d2[o+2]);
+    const dL=L1-L2,da=a1-a2,db=b1-b2;
+    const de=Math.sqrt(dL*dL+da*da+db*db);
+    deMap[i]=de;
+    if(de>deThreshold){
+      deSum+=de; deLSum+=Math.abs(dL);
+      deCSum+=Math.sqrt(da*da+db*db);
+      deCount++; diffMap[i]=1;
+    }
+  }
+  return {avgDE:deCount?deSum/deCount:0,avgDL:deCount?deLSum/deCount:0,avgDC:deCount?deCSum/deCount:0,deMap,diffMap,deCount};
+}
+function describeColorShift(avgDL,avgDA,avgDB){
+  const parts=[];
+  if(Math.abs(avgDL)>5) parts.push(avgDL>0?'偏暗':'偏亮');
+  if(Math.abs(avgDA)>5) parts.push(avgDA>0?'偏绿':'偏红');
+  if(Math.abs(avgDB)>5) parts.push(avgDB>0?'偏蓝':'偏黄');
+  return parts.length?parts.join('、'):'无明显偏移';
+}
+
+// ====== EDGE DETECTION ======
+function computeEdgeMap(gray,w,h){
+  const edges=new Float32Array(w*h);
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      const gx=-gray[(y-1)*w+x-1]+gray[(y-1)*w+x+1]-2*gray[y*w+x-1]+2*gray[y*w+x+1]-gray[(y+1)*w+x-1]+gray[(y+1)*w+x+1];
+      const gy=-gray[(y-1)*w+x-1]-2*gray[(y-1)*w+x]-gray[(y-1)*w+x+1]+gray[(y+1)*w+x-1]+2*gray[(y+1)*w+x]+gray[(y+1)*w+x+1];
+      edges[y*w+x]=Math.sqrt(gx*gx+gy*gy);
+    }
+  }
+  return edges;
+}
+function detectEdges(imgEl,w,h){
+  const tc=document.createElement('canvas');tc.width=w;tc.height=h;
+  const tctx=tc.getContext('2d');tctx.drawImage(imgEl,0,0,w,h);
+  const src=tctx.getImageData(0,0,w,h).data;
+  const gray=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) gray[i]=src[i*4]*0.299+src[i*4+1]*0.587+src[i*4+2]*0.114;
+  // Map sensitivityVal: 70(低)→80, 40(一般)→40, 20(高)→20, 10(极高)→10
+  const edgeThreshold = sensitivityVal * 1.0 + 10;
+  const edges=new Uint8Array(w*h);
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      const gx=-gray[(y-1)*w+x-1]+gray[(y-1)*w+x+1]-2*gray[y*w+x-1]+2*gray[y*w+x+1]-gray[(y+1)*w+x-1]+gray[(y+1)*w+x+1];
+      const gy=-gray[(y-1)*w+x-1]-2*gray[(y-1)*w+x]-gray[(y-1)*w+x+1]+gray[(y+1)*w+x-1]+2*gray[(y+1)*w+x]+gray[(y+1)*w+x+1];
+      const mag=Math.sqrt(gx*gx+gy*gy);
+      edges[y*w+x]=mag>edgeThreshold?Math.min(255,mag):0;
+    }
+  }
+  return edges;
+}
+function renderOutline(){
+  if(!gameImg||!psImg||!gameImg.naturalWidth) return;
+  if(!syncCanvasSize()) return;
+  const w=markCanvas.width,h=markCanvas.height;
+  const edges1=detectEdges(gameImg,w,h);
+  const edges2=detectEdges(psImg,w,h);
+  const outData=markCtx.createImageData(w,h);
+  const od=outData.data;
+  for(let i=0;i<w*h;i++){
+    const idx=i*4;
+    od[idx]=edges1[i];od[idx+1]=edges2[i];od[idx+2]=0;
+    od[idx+3]=(edges1[i]||edges2[i])?255:0;
+  }
+  markCtx.putImageData(outData,0,0);
+  markCtx.fillStyle='rgba(0,0,0,0.7)';markCtx.fillRect(10,10,220,30);
+  markCtx.font='14px sans-serif';
+  markCtx.fillStyle='#ff4444';markCtx.fillText('● 线上截图轮廓',18,30);
+  markCtx.fillStyle='#44ff44';markCtx.fillText('● UI设计稿轮廓',128,30);
+  markCanvas.style.display='block';
+}
+
+// ====== DIFF REGIONS ======
+function findDiffRegions(diffMap,w,h){
+  const blockSize=4;
+  const bw=Math.ceil(w/blockSize),bh=Math.ceil(h/blockSize);
+  const blockMap=new Uint8Array(bw*bh);
+  const visited=new Uint8Array(bw*bh);
+  for(let by=0;by<bh;by++){
+    for(let bx=0;bx<bw;bx++){
+      let count=0,total=0;
+      for(let dy=0;dy<blockSize&&by*blockSize+dy<h;dy++){
+        for(let dx=0;dx<blockSize&&bx*blockSize+dx<w;dx++){
+          if(diffMap[(by*blockSize+dy)*w+bx*blockSize+dx]) count++;
+          total++;
+        }
+      }
+      if(count>total*0.1) blockMap[by*bw+bx]=1;
+    }
+  }
+  const regions=[];
+  for(let by=0;by<bh;by++){
+    for(let bx=0;bx<bw;bx++){
+      if(!blockMap[by*bw+bx]||visited[by*bw+bx]) continue;
+      const queue=[[bx,by]]; visited[by*bw+bx]=1;
+      let minX=bx,maxX=bx,minY=by,maxY=by,area=0;
+      while(queue.length){
+        const [cx,cy]=queue.shift(); area++;
+        const neighbors=[[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1],[cx-2,cy],[cx+2,cy],[cx,cy-2],[cx,cy+2],[cx-1,cy-1],[cx+1,cy-1],[cx-1,cy+1],[cx+1,cy+1]];
+        for(const[nx,ny] of neighbors){
+          if(nx>=0&&nx<bw&&ny>=0&&ny<bh&&!visited[ny*bw+nx]&&blockMap[ny*bw+nx]){
+            visited[ny*bw+nx]=1;queue.push([nx,ny]);
+            if(nx<minX)minX=nx;if(nx>maxX)maxX=nx;if(ny<minY)minY=ny;if(ny>maxY)maxY=ny;
+          }
+        }
+      }
+      if(area>=2) regions.push({x:minX*blockSize,y:minY*blockSize,w:(maxX-minX+1)*blockSize,h:(maxY-minY+1)*blockSize,blockArea:area});
+    }
+  }
+  const finalRegions=[];
+  regions.forEach(reg=>{
+    const aspect=Math.max(reg.w,reg.h)/Math.min(reg.w,reg.h);
+    if(aspect>6&&reg.blockArea>20) finalRegions.push(...trySplitRegion(reg,diffMap,w,h));
+    else finalRegions.push(reg);
+  });
+  finalRegions.sort((a,b)=>b.blockArea-a.blockArea);
+  // Filter out low-coverage regions (likely noise aggregation)
+  const filtered=finalRegions.filter(reg=>{
+    const area=reg.w*reg.h;
+    if(area<1) return false;
+    let cnt=0;
+    for(let y=reg.y;y<reg.y+reg.h&&y<h;y++)
+      for(let x=reg.x;x<reg.x+reg.w&&x<w;x++)
+        if(diffMap[y*w+x]) cnt++;
+    return cnt/(area)>=0.05;
+  });
+  return filtered.slice(0,60);
+}
+function trySplitRegion(reg,diffMap,w,h){
+  const isHoriz=reg.w>reg.h;
+  const len=isHoriz?reg.w:reg.h;
+  const density=new Float32Array(len);
+  const cross=isHoriz?reg.h:reg.w;
+  for(let i=0;i<len;i++){
+    let sum=0;
+    for(let j=0;j<cross;j++){
+      const px=isHoriz?reg.x+i:reg.x+j,py=isHoriz?reg.y+j:reg.y+i;
+      if(px<w&&py<h&&diffMap[py*w+px]) sum++;
+    }
+    density[i]=sum/cross;
+  }
+  const splitPoints=[]; let zeroStart=-1;
+  for(let i=0;i<len;i++){
+    if(density[i]<0.05){if(zeroStart<0)zeroStart=i;}
+    else{if(zeroStart>=0&&i-zeroStart>=8) splitPoints.push(Math.floor((zeroStart+i)/2));zeroStart=-1;}
+  }
+  if(splitPoints.length===0) return[reg];
+  const points=[0,...splitPoints,len];
+  const parts=[];
+  for(let i=0;i<points.length-1;i++){
+    const start=points[i],end=points[i+1];
+    if(end-start<4) continue;
+    if(isHoriz) parts.push({x:reg.x+start,y:reg.y,w:end-start,h:reg.h,blockArea:Math.ceil((end-start)*reg.h/16)});
+    else parts.push({x:reg.x,y:reg.y+start,w:reg.w,h:end-start,blockArea:Math.ceil(reg.w*(end-start)/16)});
+  }
+  return parts.length>0?parts:[reg];
+}
+function detectOffset(reg,gray1,gray2,w,h){
+  if(reg.w*reg.h>w*h*0.15||reg.w*reg.h<100) return{dx:0,dy:0,confidence:0};
+  const maxShift=Math.min(20,Math.floor(Math.min(reg.w,reg.h)*0.5));
+  let bestDx=0,bestDy=0,bestScore=Infinity;
+  const cx=reg.x+Math.floor(reg.w/2),cy=reg.y+Math.floor(reg.h/2);
+  const sampleSize=Math.min(reg.w,reg.h,40),half=Math.floor(sampleSize/2);
+  let baseScore=0;
+  for(let sy=-half;sy<half;sy+=2) for(let sx=-half;sx<half;sx+=2){const px=cx+sx,py=cy+sy;if(px>=0&&px<w&&py>=0&&py<h) baseScore+=Math.abs(gray1[py*w+px]-gray2[py*w+px]);}
+  for(let dy=-maxShift;dy<=maxShift;dy+=2){
+    for(let dx=-maxShift;dx<=maxShift;dx+=2){
+      if(dx===0&&dy===0) continue;
+      let score=0;
+      for(let sy=-half;sy<half;sy+=2) for(let sx=-half;sx<half;sx+=2){const px1=cx+sx,py1=cy+sy,px2=px1+dx,py2=py1+dy;if(px1>=0&&px1<w&&py1>=0&&py1<h&&px2>=0&&px2<w&&py2>=0&&py2<h) score+=Math.abs(gray1[py1*w+px1]-gray2[py2*w+px2]);}
+      if(score<bestScore){bestScore=score;bestDx=dx;bestDy=dy;}
+    }
+  }
+  const confidence=baseScore>0?Math.max(0,1-bestScore/baseScore):0;
+  return{dx:bestDx,dy:bestDy,confidence};
+}
+function detectSizeDiff(reg,edgeMap1,edgeMap2,w,h){
+  let e1MinX=reg.w,e1MaxX=0,e1MinY=reg.h,e1MaxY=0;
+  let e2MinX=reg.w,e2MaxX=0,e2MinY=reg.h,e2MaxY=0;
+  let e1Count=0,e2Count=0;
+  for(let y=reg.y;y<reg.y+reg.h&&y<h;y++){
+    for(let x=reg.x;x<reg.x+reg.w&&x<w;x++){
+      const pi=y*w+x,lx=x-reg.x,ly=y-reg.y;
+      if(edgeMap1[pi]>50){if(lx<e1MinX)e1MinX=lx;if(lx>e1MaxX)e1MaxX=lx;if(ly<e1MinY)e1MinY=ly;if(ly>e1MaxY)e1MaxY=ly;e1Count++;}
+      if(edgeMap2[pi]>50){if(lx<e2MinX)e2MinX=lx;if(lx>e2MaxX)e2MaxX=lx;if(ly<e2MinY)e2MinY=ly;if(ly>e2MaxY)e2MaxY=ly;e2Count++;}
+    }
+  }
+  if(e1Count<10||e2Count<10) return{hasDiff:false,dw:0,dh:0};
+  const w1=e1MaxX-e1MinX,h1=e1MaxY-e1MinY,w2=e2MaxX-e2MinX,h2=e2MaxY-e2MinY;
+  const dw=w2-w1,dh=h2-h1;
+  const hasDiff=(Math.abs(dw)>3||Math.abs(dh)>3)&&(Math.abs(dw)/Math.max(w1,1)>0.05||Math.abs(dh)/Math.max(h1,1)>0.05);
+  return{hasDiff,dw,dh,gameSize:{w:w1,h:h1},psSize:{w:w2,h:h2}};
+}
+function classifyIssue(reg,w,h,avgDE,avgDL,chromaShift,isHighEdge,edgePct1,edgePct2,offset,sizeInfo,count,regPixels){
+  const ratio=reg.w/(reg.h||1);
+  const diffRatio=count/(regPixels||1);
+  let type,severity;
+
+  // 1. Content: missing or extra
+  if(edgePct1<edgePct2*0.6&&avgDE>10&&edgePct1<0.05){
+    type={id:'missing',cls:'cat-text',label:'内容缺失',borderColor:'#ff4757'};
+    severity=avgDE>20?'P1':'P2';
+  } else if(edgePct2>edgePct1+0.1&&edgePct2>0.1){
+    type={id:'extra',cls:'cat-text',label:'多余内容',borderColor:'#888'};
+    severity='P3';
+  }
+  // 2. Size difference
+  else if(sizeInfo.hasDiff&&(Math.abs(sizeInfo.dw)>4||Math.abs(sizeInfo.dh)>4)){
+    const dw=sizeInfo.dw, dh=sizeInfo.dh;
+    const maxDiff=Math.max(Math.abs(dw),Math.abs(dh));
+    let lbl;
+    if(Math.abs(dw)>4&&Math.abs(dh)>4) lbl=dw>0?'元素偏小':'元素偏大';
+    else if(Math.abs(dw)>Math.abs(dh)) lbl='宽度不符';
+    else lbl='高度不符';
+    type={id:'size',cls:'cat-size',label:lbl,borderColor:'#f0932b'};
+    severity=maxDiff>15?'P1':'P2';
+  }
+  // 3. Position offset
+  else if(offset.confidence>0.35&&(Math.abs(offset.dx)>2||Math.abs(offset.dy)>2)){
+    const adx=Math.abs(offset.dx), ady=Math.abs(offset.dy);
+    let lbl;
+    if(adx>2&&ady>2) lbl=adx>ady*2?'水平偏移':ady>adx*2?'垂直偏移':'整体偏移';
+    else if(adx>ady) lbl='水平偏移';
+    else lbl='垂直偏移';
+    if(offset.confidence<0.5&&adx<6&&ady<6) lbl='间距偏差';
+    type={id:'layout',cls:'cat-layout',label:lbl,borderColor:'#74c0fc'};
+    const maxOff=Math.max(adx,ady);
+    severity=maxOff>10?'P1':'P2';
+  }
+  // 4. Text/font difference
+  else if(isHighEdge&&ratio>1.5&&reg.h<80){
+    type={id:'text',cls:'cat-text',label:'文字差异',borderColor:'#55efc4'};
+    severity=avgDE>15?'P1':'P2';
+  }
+  // 5. Style difference (thin edge-like regions)
+  else if(isHighEdge&&diffRatio<0.4&&(ratio>4||ratio<0.25)){
+    type={id:'style',cls:'cat-asset',label:'边框差异',borderColor:'#fd79a8'};
+    severity=avgDE>15?'P2':'P3';
+  }
+  else if(isHighEdge&&reg.w<50&&reg.h<50&&diffRatio<0.5){
+    type={id:'style',cls:'cat-asset',label:'圆角差异',borderColor:'#fd79a8'};
+    severity='P3';
+  }
+  // 6. Color/visual difference (use LAB components)
+  else if(avgDE>5){
+    let lbl;
+    if(avgDL>chromaShift*1.5&&avgDL>3) lbl='亮度不符';
+    else if(chromaShift>avgDL*1.5&&chromaShift>3) lbl='饱和度偏差';
+    else if(avgDE>8&&diffRatio<0.3) lbl='透明度差异';
+    else lbl='颜色偏差';
+    type={id:'color',cls:'cat-color',label:lbl,borderColor:'#a29bfe'};
+    severity=avgDE>20?'P1':avgDE>10?'P2':'P3';
+  }
+  // 7. Minor style/background diff
+  else if(avgDE>2){
+    type={id:'style',cls:'cat-asset',label:'背景差异',borderColor:'#636e72'};
+    severity='P3';
+  }
+  // 8. Fallback
+  else {
+    type={id:'color',cls:'cat-color',label:'颜色偏差',borderColor:'#555'};
+    severity='P3';
+  }
+  const sMap={P0:{label:'P0',desc:'阻断',bg:'#ff475733',color:'#ff4757'},P1:{label:'P1',desc:'严重',bg:'#ff6b3533',color:'#ff6b35'},P2:{label:'P2',desc:'一般',bg:'#ffc10733',color:'#ffc107'},P3:{label:'P3',desc:'参考',bg:'#55555533',color:'#888'}};
+  return{type,severity:sMap[severity]};
+}
+function analyzeRegionFull(reg,d1,d2,w,h,lab1L,lab1A,lab1B,lab2L,lab2A,lab2B,deMap,edgeMap1,edgeMap2,gray1,gray2){
+  let deLSum=0,deASum=0,deBSum=0,deSum=0,count=0;
+  let edgeDensity1=0,edgeDensity2=0,edgePixels=0;
+  const regPixels=reg.w*reg.h;
+  for(let y=reg.y;y<reg.y+reg.h&&y<h;y++){
+    for(let x=reg.x;x<reg.x+reg.w&&x<w;x++){
+      const pi=y*w+x;
+      if(deMap[pi]>0){deLSum+=Math.abs(lab1L[pi]-lab2L[pi]);deASum+=Math.abs(lab1A[pi]-lab2A[pi]);deBSum+=Math.abs(lab1B[pi]-lab2B[pi]);deSum+=deMap[pi];count++;}
+      if(edgeMap1[pi]>50) edgeDensity1++;
+      if(edgeMap2[pi]>50) edgeDensity2++;
+      edgePixels++;
+    }
+  }
+  const avgDE=count?deSum/count:0,avgDL=count?deLSum/count:0,avgDA=count?deASum/count:0,avgDB=count?deBSum/count:0;
+  const edgePct1=edgePixels?edgeDensity1/edgePixels:0,edgePct2=edgePixels?edgeDensity2/edgePixels:0;
+  const isHighEdge=(edgePct1>0.15||edgePct2>0.15);
+  const chromaShift=Math.sqrt(avgDA*avgDA+avgDB*avgDB);
+  const offset=detectOffset(reg,gray1,gray2,w,h);
+  const sizeInfo=detectSizeDiff(reg,edgeMap1,edgeMap2,w,h);
+  const {type:issueType,severity}=classifyIssue(reg,w,h,avgDE,avgDL,chromaShift,isHighEdge,edgePct1,edgePct2,offset,sizeInfo,count,regPixels);
+  return{issue:issueType,severity,avgDE,avgDL,chromaShift,edgePct1,edgePct2,offset,sizeInfo,diffRatio:count/(regPixels||1),colorDesc:describeColorShift(avgDL,avgDA,avgDB)};
+}
+function generateReport(){
+  if(!gameImg||!psImg||!gameImg.naturalWidth||!psImg.naturalWidth) return;
+  if(!syncCanvasSize()) return;
+  const w=markCanvas.width,h=markCanvas.height;
+  const off=document.createElement('canvas');off.width=w;off.height=h;
+  const octx=off.getContext('2d');
+  octx.drawImage(gameImg,0,0,w,h);const d1=octx.getImageData(0,0,w,h).data;
+  octx.clearRect(0,0,w,h);octx.drawImage(psImg,0,0,w,h);const d2=octx.getImageData(0,0,w,h).data;
+
+  const totalPixels=w*h;
+  const gray1=new Float32Array(totalPixels),gray2=new Float32Array(totalPixels);
+  const lab1L=new Float32Array(totalPixels),lab1A=new Float32Array(totalPixels),lab1B=new Float32Array(totalPixels);
+  const lab2L=new Float32Array(totalPixels),lab2A=new Float32Array(totalPixels),lab2B=new Float32Array(totalPixels);
+  for(let i=0;i<totalPixels;i++){
+    const idx=i*4;
+    gray1[i]=d1[idx]*0.299+d1[idx+1]*0.587+d1[idx+2]*0.114;
+    gray2[i]=d2[idx]*0.299+d2[idx+1]*0.587+d2[idx+2]*0.114;
+    const c1=rgb2lab(d1[idx],d1[idx+1],d1[idx+2]);lab1L[i]=c1[0];lab1A[i]=c1[1];lab1B[i]=c1[2];
+    const c2=rgb2lab(d2[idx],d2[idx+1],d2[idx+2]);lab2L[i]=c2[0];lab2A[i]=c2[1];lab2B[i]=c2[2];
+  }
+  const deThreshold=sensitivityVal*0.6;
+  let diffPixels=0,deSumTotal=0,deLSum=0,deCSum=0;
+  const diffMap=new Uint8Array(totalPixels),deMap=new Float32Array(totalPixels);
+  for(let i=0;i<totalPixels;i++){
+    const dL=lab1L[i]-lab2L[i],dA=lab1A[i]-lab2A[i],dB=lab1B[i]-lab2B[i];
+    const de=Math.sqrt(dL*dL+dA*dA+dB*dB);
+    deMap[i]=de;
+    if(de>deThreshold){diffPixels++;deSumTotal+=de;deLSum+=Math.abs(dL);deCSum+=Math.sqrt(dA*dA+dB*dB);diffMap[i]=1;}
+  }
+  // Morphological denoise: erode then dilate
+  const eroded=new Uint8Array(totalPixels);
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
+    let cnt=0;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) cnt+=diffMap[(y+dy)*w+(x+dx)];
+    if(cnt>=3) eroded[y*w+x]=1;
+  }
+  const cleaned=new Uint8Array(totalPixels);
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
+    if(eroded[y*w+x]){cleaned[y*w+x]=1;continue;}
+    let cnt=0;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) cnt+=eroded[(y+dy)*w+(x+dx)];
+    if(cnt>=1) cleaned[y*w+x]=1;
+  }
+  const ssimResult=computeSSIM(gray1,gray2,w,h);
+  const regions=findDiffRegions(cleaned,w,h);
+  const edgeMap1=computeEdgeMap(gray1,w,h),edgeMap2=computeEdgeMap(gray2,w,h);
+  regions.forEach((reg,i)=>{
+    reg.id=i+1;
+    reg.analysis=analyzeRegionFull(reg,d1,d2,w,h,lab1L,lab1A,lab1B,lab2L,lab2A,lab2B,deMap,edgeMap1,edgeMap2,gray1,gray2);
+  });
+  const diffPercent=diffPixels/totalPixels*100;
+  const sizeMatch=gameImg.naturalWidth===psImg.naturalWidth&&gameImg.naturalHeight===psImg.naturalHeight;
+  reportData={
+    w,h,diffPixels,totalPixels,diffPercent,regions,sizeMatch,
+    gameSize:{w:gameImg.naturalWidth,h:gameImg.naturalHeight},
+    psSize:{w:psImg.naturalWidth,h:psImg.naturalHeight},
+    avgDE:diffPixels?deSumTotal/diffPixels:0,
+    avgDL:diffPixels?deLSum/diffPixels:0,
+    avgDC:diffPixels?deCSum/diffPixels:0,
+    ssim:ssimResult.mean,ssimMin:ssimResult.min,
+    deThreshold
+  };
+  regionChecked=regions.map(()=>true);
+  loadAIConfig();
+  if(aiConfig.enabled&&aiConfig.model) triggerAIAnalysis();
+}
+
+// ====== REPORT ======
+function renderReport(){
+  if(!reportData) return;
+  document.getElementById('rp-empty').style.display='none';
+  const c=document.getElementById('rp-content'); c.style.display='block';
+  const r=reportData;
+  const ssimPct=(r.ssim*100);
+  const ssimSev=ssimPct>97?'metric-good':ssimPct>90?'metric-warn':'metric-bad';
+  const deSev=r.avgDE<3?'metric-good':r.avgDE<10?'metric-warn':'metric-bad';
+  const sevCounts={serious:0,normal:0,ref:0};
+  r.regions.forEach(reg=>{
+    const a=reg.analysis;
+    if(a.severity.label==='P0'||a.severity.label==='P1') sevCounts.serious++;
+    else if(a.severity.label==='P2') sevCounts.normal++;
+    else sevCounts.ref++;
+  });
+  let html=`<div id="ai-config-bar" style="background:#09091a;border:1px solid #222;border-radius:7px;padding:8px 10px;margin-bottom:9px">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleAIConfig()">
+      <span style="font-size:11px;color:#007AFF">⚙ AI识图分析配置</span>
+      <span id="ai-status-dot" style="font-size:10px;color:#666">未配置</span>
+    </div>
+    <div id="ai-config-form" style="display:none;margin-top:8px">
+      <label style="font-size:10px;color:#666;display:block;margin-bottom:2px">接口类型</label>
+      <select id="ai-type-sel" style="width:100%;background:#11111f;border:1px solid #2a2a3a;color:#ccc;padding:4px;border-radius:4px;font-size:11px;margin-bottom:5px;box-sizing:border-box" onchange="onAITypeChange()">
+        <option value="ollama">Ollama（本地）</option>
+        <option value="siliconflow">硅基流动</option>
+        <option value="zhipu">智谱AI</option>
+        <option value="qwen">通义千问</option>
+        <option value="openai">OpenAI兼容</option>
+      </select>
+      <label style="font-size:10px;color:#666;display:block;margin-bottom:2px">API 地址</label>
+      <input id="ai-url-inp" type="text" value="http://localhost:11434" style="width:100%;background:#11111f;border:1px solid #2a2a3a;color:#ccc;padding:4px;border-radius:4px;font-size:11px;margin-bottom:5px;box-sizing:border-box">
+      <label style="font-size:10px;color:#666;display:block;margin-bottom:2px">模型名称</label>
+      <input id="ai-model-inp" type="text" placeholder="如 llava、Qwen2.5-VL-7B-Instruct" style="width:100%;background:#11111f;border:1px solid #2a2a3a;color:#ccc;padding:4px;border-radius:4px;font-size:11px;margin-bottom:5px;box-sizing:border-box">
+      <div id="ai-key-row" style="display:none;margin-bottom:5px">
+        <label style="font-size:10px;color:#666;display:block;margin-bottom:2px">API Key</label>
+        <input id="ai-key-inp" type="password" placeholder="sk-..." style="width:100%;background:#11111f;border:1px solid #2a2a3a;color:#ccc;padding:4px;border-radius:4px;font-size:11px;box-sizing:border-box">
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="saveAIConfigUI()" style="flex:1;background:#007AFF;color:#fff;border:none;padding:5px;border-radius:4px;font-size:11px;cursor:pointer">保存</button>
+        <button onclick="testAIConnection()" style="flex:1;background:#222;color:#ccc;border:1px solid #444;padding:5px;border-radius:4px;font-size:11px;cursor:pointer">测试</button>
+      </div>
+      <div id="ai-config-msg" style="margin-top:5px;font-size:10px;color:#666"></div>
+    </div>
+  </div>
+  <div style="margin-bottom:12px">
+    <div style="font-size:11px;color:#007AFF;margin-bottom:6px">AI 综合分析</div>
+    <div id="ai-analysis-section">${aiConfig.enabled&&aiConfig.model?'<span style="color:#555;font-size:11px">待分析...</span>':'<span style="color:#555;font-size:11px">AI未配置，请点击上方⚙设置</span>'}</div>
+  </div>`;
+
+  // 核心指标
+  html+=`<div class="rp-metric"><span class="rp-metric-label">结构相似度(SSIM)</span><span class="rp-metric-value ${ssimSev}">${ssimPct.toFixed(1)}% · ${ssimPct>97?'高度一致':ssimPct>90?'存在差异':'差异显著'}</span></div>`;
+  html+=`<div class="rp-metric"><span class="rp-metric-label">感知色差(Delta-E)</span><span class="rp-metric-value ${deSev}">${r.avgDE.toFixed(1)} · ${r.avgDE<3?'几乎无感知':r.avgDE<10?'可感知':'明显差异'}</span></div>`;
+  html+=`<div class="rp-metric"><span class="rp-metric-label">差异像素占比</span><span class="rp-metric-value ${r.diffPercent<1?'metric-good':r.diffPercent<5?'metric-warn':'metric-bad'}">${r.diffPercent.toFixed(2)}%</span></div>`;
+  html+=`<div class="rp-metric"><span class="rp-metric-label">尺寸对比</span><span class="rp-metric-value ${r.sizeMatch?'metric-good':'metric-warn'}">${r.sizeMatch?'✓ 一致':'⚠ 不一致'}</span></div>`;
+  html+=`<div style="font-size:10px;color:#555;margin-bottom:8px;padding:0 2px">线上: ${r.gameSize.w}×${r.gameSize.h} &nbsp; 设计稿: ${r.psSize.w}×${r.psSize.h}</div>`;
+  html+=`<div class="rp-metric"><span class="rp-metric-label">差异区域数</span><span class="rp-metric-value ${r.regions.length===0?'metric-good':r.regions.length<5?'metric-warn':'metric-bad'}">${r.regions.length} 个</span></div>`;
+
+  // 区域列表
+  if(r.regions.length>0){
+    html+=`<div style="font-size:11px;color:#007AFF;margin:10px 0 6px">差异区域列表</div>
+    <div class="region-filter">
+      <button class="rf-btn ${activeFilter==='all'?'active':''}" onclick="setFilter('all')">全部(${r.regions.length})</button>
+      <button class="rf-btn ${activeFilter==='serious'?'active':''}" onclick="setFilter('serious')">严重(${sevCounts.serious})</button>
+      <button class="rf-btn ${activeFilter==='normal'?'active':''}" onclick="setFilter('normal')">一般(${sevCounts.normal})</button>
+      <button class="rf-btn ${activeFilter==='ref'?'active':''}" onclick="setFilter('ref')">参考(${sevCounts.ref})</button>
+    </div>
+    <label class="rpt-select-all" style="display:flex;align-items:center;gap:5px;margin-bottom:6px;padding:4px 6px;background:rgba(255,255,255,.04);border-radius:5px;cursor:pointer;font-size:11px">
+      <input type="checkbox" id="rpt-check-all" checked onchange="toggleAllRegions(this.checked)" style="accent-color:#007AFF">全选/取消全选
+    </label>`;
+    r.regions.forEach((reg,i)=>{
+      const a=reg.analysis;
+      let filterKey=(a.severity.label==='P0'||a.severity.label==='P1')?'serious':a.severity.label==='P2'?'normal':'ref';
+      const visible=activeFilter==='all'||filterKey===activeFilter;
+      let metricsHtml=`<div style="color:#555;font-size:9px;margin-top:2px">ΔE:${a.avgDE.toFixed(1)}`;
+      if(a.offset&&a.offset.confidence>0.35&&(Math.abs(a.offset.dx)>2||Math.abs(a.offset.dy)>2)) metricsHtml+=` 偏移:X${a.offset.dx>0?'+':''}${a.offset.dx}Y${a.offset.dy>0?'+':''}${a.offset.dy}`;
+      if(a.sizeInfo&&a.sizeInfo.hasDiff) metricsHtml+=` 尺寸差:宽${a.sizeInfo.dw>0?'+':''}${a.sizeInfo.dw}高${a.sizeInfo.dh>0?'+':''}${a.sizeInfo.dh}`;
+      metricsHtml+=`</div>`;
+      html+=`<div class="rpt-region-row" data-filter="${filterKey}" style="display:${visible?'flex':'none'};gap:5px;align-items:flex-start;margin-bottom:5px">
+        <input type="checkbox" class="rpt-region-cb" data-idx="${i}" checked onchange="onRegionCheck(${i},this.checked)" style="margin-top:8px;width:13px;height:13px;accent-color:#007AFF;cursor:pointer;flex-shrink:0">
+        <div class="region-card" style="border-left:3px solid ${a.issue.borderColor};padding:6px 8px;border-radius:0 6px 6px 0;font-size:11px;cursor:pointer;flex:1;background:rgba(255,255,255,.03)" onclick="scrollToRegionById(${i})">
+          <div><strong>#${i+1}</strong>
+            <span style="background:${a.severity.bg};color:${a.severity.color};padding:1px 5px;border-radius:3px;font-size:9px;margin-left:3px;font-weight:bold">${a.severity.label} ${a.severity.desc}</span>
+            <span style="color:${a.issue.borderColor};font-size:11px;margin-left:3px">${a.issue.label}</span>
+          </div>
+          <div style="color:#555;font-size:9px;margin-top:2px">位置:(${reg.x},${reg.y}) 大小:${reg.w}×${reg.h}</div>
+          ${metricsHtml}
+          ${a.colorDesc!=='无明显偏移'?`<div style="color:#555;font-size:9px">色偏:${a.colorDesc}</div>`:''}
+          ${a.aiDesc?`<div style="color:#4ecca3;font-size:10px;margin-top:2px">🤖 ${a.aiDesc}</div>`:''}
+        </div>
+      </div>`;
+    });
+  }
+  html+=`<button class="rpt-export-btn" onclick="exportReportTxt()">导出差异报告(TXT)</button>`;
+  c.innerHTML=html;
+  syncAIConfigToForm();
+  updateAIStatusDot();
+}
+function setFilter(f){
+  activeFilter=f;
+  document.querySelectorAll('.rpt-region-row').forEach(row=>{
+    row.style.display=(f==='all'||row.dataset.filter===f)?'flex':'none';
+  });
+  document.querySelectorAll('.rf-btn').forEach(b=>b.classList.remove('active'));
+  const ab=document.querySelector(`.rf-btn[onclick="setFilter('${f}')"]`);
+  if(ab) ab.classList.add('active');
+}
+function toggleAllRegions(checked){
+  regionChecked=regionChecked.map(()=>checked);
+  document.querySelectorAll('.rpt-region-cb').forEach(cb=>cb.checked=checked);
+  drawReportMarkers(reportData.regions);
+}
+function onRegionCheck(idx,checked){
+  regionChecked[idx]=checked;
+  const allCb=document.getElementById('rpt-check-all');
+  if(allCb){const allC=regionChecked.every(v=>v);const noneC=regionChecked.every(v=>!v);allCb.checked=allC;allCb.indeterminate=!allC&&!noneC;}
+  drawReportMarkers(reportData.regions);
+}
+function scrollToRegionById(idx){
+  if(!regionChecked[idx]){regionChecked[idx]=true;const cb=document.querySelector(`.rpt-region-cb[data-idx="${idx}"]`);if(cb)cb.checked=true;drawReportMarkers(reportData.regions);}
+  const rows=document.querySelectorAll('.rpt-region-row');
+  if(rows[idx]) rows[idx].scrollIntoView({behavior:'smooth',block:'nearest'});
+  // 高亮闪烁
+  const reg=reportData.regions[idx];
+  if(reg){markCtx.save();markCtx.strokeStyle='#ffeb3b';markCtx.lineWidth=6;markCtx.strokeRect(reg.x-4,reg.y-4,reg.w+8,reg.h+8);markCtx.restore();setTimeout(()=>drawReportMarkers(reportData.regions),800);}
+}
+
+// ====== REPORT MARKERS ======
+function drawReportMarkers(regions) {
+  markCtx.clearRect(0,0,markCanvas.width,markCanvas.height);
+  const w=markCanvas.width;
+  regions.forEach((reg,i)=>{
+    if(!regionChecked[i]) return;
+    const a=reg.analysis;
+    const color=a?a.issue.borderColor:'#00b0ff';
+    markCtx.save();
+    markCtx.strokeStyle=color;
+    markCtx.lineWidth=Math.max(2,Math.round(w/400));
+    markCtx.setLineDash([8,4]);
+    markCtx.strokeRect(reg.x,reg.y,reg.w,reg.h);
+    markCtx.setLineDash([]);
+    const fs=Math.max(12,Math.round(w/80));
+    const pad=4;
+    const label='#'+reg.id;
+    markCtx.font=`bold ${fs}px sans-serif`;
+    const tw=markCtx.measureText(label).width;
+    const bw=tw+pad*2,bh=fs+pad*2;
+    const bx=reg.x,by=Math.max(0,reg.y-bh-2);
+    markCtx.fillStyle=color;
+    markCtx.beginPath();
+    markCtx.roundRect?markCtx.roundRect(bx,by,bw,bh,3):markCtx.rect(bx,by,bw,bh);
+    markCtx.fill();
+    markCtx.fillStyle='#fff';
+    markCtx.textBaseline='top';
+    markCtx.fillText(label,bx+pad,by+pad);
+    markCtx.restore();
+  });
+  markCanvas.style.display='block';
+}
+function clearReportMarkers() {
+  if(isComparing){runAnalysis();}
+  else{markCtx.clearRect(0,0,markCanvas.width,markCanvas.height);markCanvas.style.display='none';}
+  clickCtx.clearRect(0,0,clickCanvas.width,clickCanvas.height);
+}
+function onClickCanvasClick(e) {
+  if(activeTool) return; // annotation tool active, ignore report clicks
+  if(!reportData) return;
+  const p=getPos(e);
+  reportData.regions.forEach((r,i)=>{
+    const cx=r.x+r.w/2,cy=r.y+r.h/2;
+    if(Math.sqrt((p.x-cx)**2+(p.y-cy)**2)<8) scrollToRegionById(i);
+  });
+}
+function onClickCanvasMove(e) {
+  if(activeTool) return; // annotation tool handles cursor, skip tooltip
+  if(!reportData) return;
+  const p=getPos(e);
+  let found=null,foundIdx=-1;
+  reportData.regions.forEach((r,i)=>{
+    const cx=r.x+r.w/2,cy=r.y+r.h/2;
+    if(Math.sqrt((p.x-cx)**2+(p.y-cy)**2)<10){found=r;foundIdx=i;}
+  });
+  if(found){
+    canvasTooltip.style.display='block';
+    canvasTooltip.style.left=(e.clientX-layers.getBoundingClientRect().left+8)+'px';
+    canvasTooltip.style.top=(e.clientY-layers.getBoundingClientRect().top-24)+'px';
+    const a=found.analysis;
+    canvasTooltip.textContent='区域 #'+found.id+(a?' ('+a.issue.label+')':'');
+  }else{canvasTooltip.style.display='none';}
+}
+function scrollToRegion(id) {
+  // legacy compat
+  if(reportData){const idx=reportData.regions.findIndex(x=>x.id===id);if(idx>=0)scrollToRegionById(idx);}
+}
+
+// ====== SETTINGS ======
+function toggleBW(white) {
+  bwMode=white;
+  viewport.classList.toggle('bw-bg',white);
+  document.getElementById('bw-dark').classList.toggle('active',!white);
+  document.getElementById('bw-white').classList.toggle('active',white);
+}
+function setLang(l) {
+  lang=l;
+  document.getElementById('lang-zh').classList.toggle('active',l==='zh');
+  document.getElementById('lang-en').classList.toggle('active',l==='en');
+  if(l==='en'){
+    document.querySelector('.brand').textContent='🔍 UI Diff Tool';
+    document.getElementById('mode-compare').textContent='⬡ Diff Compare';
+  } else {
+    document.querySelector('.brand').textContent='🔍 UI跑查对比工具';
+    document.getElementById('mode-compare').textContent='⬡ 差异对比';
+  }
+}
+
+// ====== MODALS ======
+function openModal(id) { document.getElementById(id).classList.add('open'); if(id==='modal-ai') syncAIConfigToForm(); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ====== EXPORT DROPDOWN ======
+function toggleExportDropdown() { document.getElementById('export-dropdown').classList.toggle('open'); }
+function closeExportDropdown() { document.getElementById('export-dropdown').classList.remove('open'); }
+function setExportMode(mode) {
+  exportMerge = mode==='merge';
+  document.getElementById('exp-merge-btn').classList.toggle('active', exportMerge);
+  document.getElementById('exp-split-btn').classList.toggle('active', !exportMerge);
+}
+
+// ====== EXPORT ======
+function compositeAll() {
+  const refImg=gameImg||psImg;
+  if(!refImg) return null;
+  // Get viewport dimensions and layers position
+  const vr=viewport.getBoundingClientRect();
+  const lr=layers.getBoundingClientRect();
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  // Compute bounding box including layers and all labels
+  let minX=lr.left-vr.left, minY=lr.top-vr.top;
+  let maxX=minX+lr.width, maxY=minY+lr.height;
+  canvasLabels.forEach(lb=>{
+    const el=document.getElementById('cl-'+lb.id);
+    if(el){
+      minX=Math.min(minX,lb.x-4); minY=Math.min(minY,lb.y-4);
+      maxX=Math.max(maxX,lb.x+el.offsetWidth+4); maxY=Math.max(maxY,lb.y+el.offsetHeight+4);
+    }
+    if(lb.sx!=null){ minX=Math.min(minX,Math.min(lb.sx,lb.tx)); minY=Math.min(minY,Math.min(lb.sy,lb.ty)); maxX=Math.max(maxX,Math.max(lb.sx,lb.tx)); maxY=Math.max(maxY,Math.max(lb.sy,lb.ty)); }
+    minX=Math.min(minX,lb.tx); minY=Math.min(minY,lb.ty); maxX=Math.max(maxX,lb.tx); maxY=Math.max(maxY,lb.ty);
+  });
+  // Clamp to viewport and add padding
+  minX=Math.max(0,minX-10); minY=Math.max(0,minY-10);
+  maxX=Math.min(vw,maxX+10); maxY=Math.min(vh,maxY+10);
+  const outW=Math.round(maxX-minX), outH=Math.round(maxY-minY);
+  if(outW<1||outH<1) return null;
+  const out=document.createElement('canvas'); out.width=outW*2; out.height=outH*2;
+  const ctx=out.getContext('2d');
+  ctx.scale(2,2);
+  // Background
+  ctx.fillStyle='#1a1a2a'; ctx.fillRect(0,0,outW,outH);
+  // Draw game/ps images at layers position
+  const lx=lr.left-vr.left-minX, ly=lr.top-vr.top-minY;
+  const lw2=lr.width, lh2=lr.height;
+  if(gameImg) ctx.drawImage(gameImg,lx,ly,lw2,lh2);
+  if(psImg){ctx.globalAlpha=+document.getElementById('slider-ps').value;ctx.drawImage(psImg,lx,ly,lw2,lh2);ctx.globalAlpha=1;}
+  // Draw mark canvas (diff overlays) at layers position
+  ctx.drawImage(markCanvas,lx,ly,lw2,lh2);
+  // Draw anno canvas (annotations) offset by minX/minY
+  ctx.drawImage(annoCanvas,-minX,-minY,vw,vh);
+  // Draw canvas labels
+  canvasLabels.forEach(lb=>{
+    const lc=lb.lineColor||'#ffffff88';
+    const sh=lb.shape||'none';
+    const lwVal=lb.lw||2;
+    ctx.save();
+    ctx.strokeStyle=lc; ctx.lineWidth=lwVal; ctx.setLineDash([]);
+    const ox=-minX, oy=-minY;
+    if(sh==='rect'&&lb.sx!=null){
+      ctx.beginPath(); ctx.strokeRect(lb.sx+ox,lb.sy+oy,lb.tx-lb.sx,lb.ty-lb.sy);
+    } else if(sh==='circle'&&lb.sx!=null){
+      const cx2=(lb.sx+lb.tx)/2+ox, cy2=(lb.sy+lb.ty)/2+oy;
+      const rx=Math.abs(lb.tx-lb.sx)/2, ry=Math.abs(lb.ty-lb.sy)/2;
+      ctx.beginPath(); ctx.ellipse(cx2,cy2,rx||1,ry||1,0,0,Math.PI*2); ctx.stroke();
+    } else if(sh==='arrow'&&lb.sx!=null){
+      drawArrow(ctx,lb.sx+ox,lb.sy+oy,lb.tx+ox,lb.ty+oy,lwVal);
+    }
+    // Connector line
+    let fromX,fromY;
+    if((sh==='rect'||sh==='circle')&&lb.sx!=null){
+      const sMinX=Math.min(lb.sx,lb.tx), sMaxX=Math.max(lb.sx,lb.tx);
+      const sMinY=Math.min(lb.sy,lb.ty), sMaxY=Math.max(lb.sy,lb.ty);
+      const sMidX=(sMinX+sMaxX)/2, sMidY=(sMinY+sMaxY)/2;
+      const elRef2=document.getElementById('cl-'+lb.id);
+      const lblCX=lb.x+(elRef2?elRef2.offsetWidth/2:70), lblCY=lb.y+(elRef2?elRef2.offsetHeight/2:15);
+      const ddx=Math.abs(lblCX-sMidX), ddy=Math.abs(lblCY-sMidY);
+      if(ddy>ddx){ fromX=sMidX+ox; fromY=(lblCY<sMidY?sMinY:sMaxY)+oy; }
+      else { fromY=sMidY+oy; fromX=(lblCX<sMidX?sMinX:sMaxX)+ox; }
+    }
+    else if(sh==='arrow'&&lb.sx!=null){ fromX=lb.sx+ox; fromY=lb.sy+oy; }
+    else { fromX=lb.tx+ox; fromY=lb.ty+oy; }
+    const toX=lb.x+ox, toY=lb.y+oy;
+    const elRef=document.getElementById('cl-'+lb.id);
+    const toYc=elRef?(toY+elRef.offsetHeight/2):toY;
+    const dist=Math.sqrt((toX-fromX)**2+(toYc-fromY)**2);
+    if(dist>5){
+      ctx.strokeStyle=lc; ctx.lineWidth=lwVal*0.75; ctx.setLineDash([4,3]);
+      ctx.beginPath(); ctx.moveTo(fromX,fromY); ctx.lineTo(toX,toYc); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Target dot for shape=none
+    if(sh==='none'){
+      ctx.fillStyle=lc.length>7?lc.slice(0,7)+'cc':lc;
+      ctx.beginPath(); ctx.arc(lb.tx+ox,lb.ty+oy,4,0,Math.PI*2); ctx.fill();
+    }
+    // Label text
+    const text=lb.text||'';
+    const fontSize=12;
+    ctx.font='600 '+fontSize+'px "PingFang SC","Microsoft YaHei",sans-serif';
+    const tm=ctx.measureText(text);
+    const pad=5;
+    const bgX=lb.x+ox-pad, bgY=lb.y+oy-pad;
+    const bgW=tm.width+pad*2, bgH=fontSize+pad*2;
+    ctx.fillStyle=lb.bgColor||'#007AFF22'; ctx.fillRect(bgX,bgY,bgW,bgH);
+    if(lb.textColor){ ctx.strokeStyle=lb.textColor; ctx.lineWidth=1; ctx.strokeRect(bgX,bgY,bgW,bgH); }
+    ctx.fillStyle=lb.textColor||'#007AFF';
+    ctx.fillText(text,lb.x+ox,lb.y+oy+fontSize);
+    ctx.restore();
+  });
+  return out;
+}
+function buildReportCanvas(w) {
+  if(!reportData) return null;
+  const r=reportData;
+  const lines=[];
+  lines.push('UI差异报告  '+new Date().toLocaleString());
+  lines.push('SSIM: '+(r.ssim*100).toFixed(1)+'%   Delta-E: '+r.avgDE.toFixed(1)+'   差异像素: '+r.diffPercent.toFixed(2)+'%');
+  lines.push('差异区域数: '+r.regions.length+'个');
+  lines.push('');
+  r.regions.slice(0,15).forEach(reg=>{
+    const a=reg.analysis;
+    lines.push('#'+reg.id+' ['+a.severity.label+'] '+a.issue.label+' — 位置:('+reg.x+','+reg.y+') '+reg.w+'×'+reg.h);
+  });
+  const lineH=20, pad=16;
+  const h=lines.length*lineH+pad*2;
+  const out=document.createElement('canvas'); out.width=w; out.height=h;
+  const ctx=out.getContext('2d');
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='#222'; ctx.font='12px monospace';
+  lines.forEach((l,i)=>ctx.fillText(l,pad,pad+i*lineH+12));
+  return out;
+}
+function doExport() {
+  const wantCurrent=document.getElementById('exp-check-current').checked;
+  const wantOrigin=document.getElementById('exp-check-origin').checked;
+  if(!wantCurrent&&!wantOrigin){ alert('请至少选择一项导出内容'); return; }
+  const parts=[];
+  if(wantCurrent){ const c=compositeAll(); if(c) parts.push({name:'当前画面',canvas:c}); }
+  if(wantOrigin && psImg && gameImg){
+    // Build simple stacked origin canvas (design on top, game on bottom)
+    const refW=(gameImg||psImg).naturalWidth;
+    const halfH=Math.round(refW*0.6);
+    const out=document.createElement('canvas'); out.width=refW; out.height=halfH*2+2;
+    const octx=out.getContext('2d');
+    octx.fillStyle='#0d0d1d'; octx.fillRect(0,0,out.width,out.height);
+    if(psImg){const s=Math.min(refW/psImg.naturalWidth,halfH/psImg.naturalHeight);const dw=Math.floor(psImg.naturalWidth*s),dh=Math.floor(psImg.naturalHeight*s);octx.drawImage(psImg,Math.floor((refW-dw)/2),Math.floor((halfH-dh)/2),dw,dh);}
+    octx.strokeStyle='#333';octx.lineWidth=1;octx.beginPath();octx.moveTo(0,halfH+1);octx.lineTo(refW,halfH+1);octx.stroke();
+    if(gameImg){const s=Math.min(refW/gameImg.naturalWidth,halfH/gameImg.naturalHeight);const dw=Math.floor(gameImg.naturalWidth*s),dh=Math.floor(gameImg.naturalHeight*s);octx.drawImage(gameImg,Math.floor((refW-dw)/2),halfH+2+Math.floor((halfH-dh)/2),dw,dh);}
+    parts.push({name:'原图对比',canvas:out});
+  }
+  if(!parts.length) return;
+  if(exportMerge) {
+    const totalW=Math.max(...parts.map(p=>p.canvas.width));
+    const totalH=parts.reduce((s,p)=>s+p.canvas.height+8,0)-8;
+    const out=document.createElement('canvas'); out.width=totalW; out.height=totalH;
+    const ctx=out.getContext('2d');
+    ctx.fillStyle='#0d0d1d'; ctx.fillRect(0,0,totalW,totalH);
+    let y=0;
+    parts.forEach(p=>{
+      const ox=Math.floor((totalW-p.canvas.width)/2);
+      ctx.drawImage(p.canvas,ox,y); y+=p.canvas.height+8;
+    });
+    const a=document.createElement('a'); a.href=out.toDataURL('image/png'); a.download='ui-export-'+Date.now()+'.png'; a.click();
+  } else {
+    parts.forEach((p,i)=>setTimeout(()=>{
+      const a=document.createElement('a'); a.href=p.canvas.toDataURL('image/png'); a.download='ui-'+p.name+'-'+Date.now()+'.png'; a.click();
+    },i*300));
+  }
+  closeExportDropdown();
+}
+function exportReportTxt(){
+  const r=reportData; if(!r) return;
+  let txt='UI跑查 - 差异分析报告\n'+'='.repeat(40)+'\n';
+  txt+='生成时间: '+new Date().toLocaleString()+'\n\n';
+  txt+='SSIM: '+(r.ssim*100).toFixed(1)+'%  Delta-E: '+r.avgDE.toFixed(1)+'  差异: '+r.diffPercent.toFixed(2)+'%\n';
+  txt+='差异区域: '+r.regions.length+'个\n\n';
+  r.regions.forEach(reg=>{
+    const a=reg.analysis;
+    txt+='#'+reg.id+' ['+a.severity.label+'] '+a.issue.label+' ('+reg.x+','+reg.y+') '+reg.w+'×'+reg.h+'\n';
+  });
+  const blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');a.download='UI_Report_'+Date.now()+'.txt';a.href=URL.createObjectURL(blob);a.click();
+}
+
+// ====== AI ======
+function loadAIConfig(){try{const s=localStorage.getItem('qaAIConfig');if(s)Object.assign(aiConfig,JSON.parse(s));}catch(e){}}
+function saveAIConfig(){localStorage.setItem('qaAIConfig',JSON.stringify(aiConfig));}
+function syncAIConfigToForm(){
+  const t=document.getElementById('ai-type-sel'),u=document.getElementById('ai-url-inp'),m=document.getElementById('ai-model-inp'),k=document.getElementById('ai-key-inp');
+  if(t)t.value=aiConfig.type||'ollama';if(u)u.value=aiConfig.url||'http://localhost:11434';if(m)m.value=aiConfig.model||'';if(k)k.value=aiConfig.apiKey||'';
+  updateAIKeyRowVisibility();
+}
+function updateAIStatusDot(){
+  const dot=document.getElementById('ai-status-dot');if(!dot)return;
+  if(!aiConfig.enabled||!aiConfig.model){dot.textContent='● 未配置';dot.style.color='#666';}
+  else{dot.textContent='● '+aiConfig.model;dot.style.color='#4ecca3';}
+}
+function toggleAIConfig(){const f=document.getElementById('ai-config-form');if(f)f.style.display=f.style.display==='none'?'block':'none';}
+function onAITypeChange(){
+  const type=document.getElementById('ai-type-sel').value;
+  const u=document.getElementById('ai-url-inp'),m=document.getElementById('ai-model-inp');
+  const urls={ollama:'http://localhost:11434',siliconflow:'https://api.siliconflow.cn',zhipu:'https://open.bigmodel.cn/api/paas',qwen:'https://dashscope.aliyuncs.com/compatible-mode',openai:'https://api.openai.com'};
+  if(u)u.value=urls[type]||'';updateAIKeyRowVisibility();
+}
+function updateAIKeyRowVisibility(){const type=document.getElementById('ai-type-sel')?.value||aiConfig.type;const row=document.getElementById('ai-key-row');if(row)row.style.display=type==='ollama'?'none':'block';}
+function saveAIConfigUI(){
+  aiConfig.type=document.getElementById('ai-type-sel').value;
+  aiConfig.url=document.getElementById('ai-url-inp').value.replace(/\/$/,'');
+  aiConfig.model=document.getElementById('ai-model-inp').value.trim();
+  aiConfig.apiKey=(document.getElementById('ai-key-inp')?.value||'').trim();
+  aiConfig.enabled=!!aiConfig.model;
+  saveAIConfig();updateAIStatusDot();
+  const msg=document.getElementById('ai-config-msg');if(msg){msg.textContent='✓ 已保存';msg.style.color='#4ecca3';}
+  setTimeout(()=>{const m=document.getElementById('ai-config-msg');if(m&&m.textContent==='✓ 已保存')m.textContent='';},2000);
+}
+async function testAIConnection(){
+  const msg=document.getElementById('ai-config-msg');if(msg){msg.textContent='连接中...';msg.style.color='#ffc107';}
+  const url=(document.getElementById('ai-url-inp')?.value||aiConfig.url).replace(/\/$/,'');
+  const type=document.getElementById('ai-type-sel')?.value||aiConfig.type;
+  const key=document.getElementById('ai-key-inp')?.value.trim()||aiConfig.apiKey;
+  try{
+    const endpoint=type==='ollama'?url+'/api/tags':url+'/v1/models';
+    const headers={};if(key)headers['Authorization']='Bearer '+key;
+    const res=await fetch(endpoint,{headers,signal:AbortSignal.timeout(5000)});
+    if(msg){msg.textContent=res.ok?'✓ 连接成功':'✗ 服务响应异常('+res.status+')';msg.style.color=res.ok?'#4ecca3':'#ff4757';}
+  }catch(e){if(msg){msg.textContent='✗ 无法连接：'+e.message;msg.style.color='#ff4757';}}
+}
+function imgToBase64(imgEl,maxW=1024){
+  const tc=document.createElement('canvas');
+  const scale=Math.min(1,maxW/imgEl.naturalWidth);
+  tc.width=Math.round(imgEl.naturalWidth*scale);tc.height=Math.round(imgEl.naturalHeight*scale);
+  tc.getContext('2d').drawImage(imgEl,0,0,tc.width,tc.height);
+  return tc.toDataURL('image/jpeg',0.85).split(',')[1];
+}
+const AI_PROMPT_FULL=`你是一名经验丰富的游戏UI质量保证工程师（QA）。我给你提供两张图片：第一张是设计原稿，第二张是线上截图。\n\n请从专业QA视角，对比分析两图的差异，找出线上截图中存在的UI问题。\n\n重要说明：\n- 设计原稿会包含多种UI状态，线上只展示当前状态\n- 设计稿多出的元素若疑似为隐藏状态，不作为问题，仅标注"[设计稿多出内容]"\n- 只有线上截图本应显示却错误/缺失的内容才算问题\n- 忽略微小的抗锯齿、渲染细节差异\n\n输出格式（每个问题一行）：\n[P级] 问题类型 | 问题描述 | 建议处理方式\n\nP0=阻断 P1=严重 P2=一般 P3=轻微\n按P级从高到低排列，不超过10个问题。若无明显问题，直接输出"未发现明显UI问题"。`;
+async function callAIApi(b64Design,b64Live){
+  const cfg=aiConfig;if(!cfg.enabled||!cfg.model)return null;
+  const headers={'Content-Type':'application/json'};
+  if(cfg.apiKey)headers['Authorization']='Bearer '+cfg.apiKey;
+  let body;
+  if(cfg.type==='ollama'){
+    body=JSON.stringify({model:cfg.model,prompt:AI_PROMPT_FULL,images:[b64Design,b64Live],stream:false,options:{temperature:0.2}});
+    const res=await fetch(cfg.url+'/api/generate',{method:'POST',headers,body});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    return(await res.json()).response;
+  }else{
+    body=JSON.stringify({model:cfg.model,messages:[{role:'user',content:[{type:'text',text:AI_PROMPT_FULL},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64Design}},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64Live}}]}],max_tokens:1000,temperature:0.2});
+    const res=await fetch(cfg.url+'/v1/chat/completions',{method:'POST',headers,body});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    return(await res.json()).choices?.[0]?.message?.content;
+  }
+}
+async function triggerAIAnalysis(){
+  const sec=document.getElementById('ai-analysis-section');if(!sec)return;
+  sec.innerHTML='<div style="color:#ffc107;font-size:11px;padding:6px 0">⏳ AI正在分析界面差异...</div>';
+  try{
+    const result=await callAIApi(imgToBase64(psImg),imgToBase64(gameImg));
+    if(result) renderAIResult(result);
+    else sec.innerHTML='<div style="color:#555;font-size:11px">AI分析未返回内容</div>';
+  }catch(e){sec.innerHTML=`<div style="color:#ff4757;font-size:11px">AI分析失败：${e.message}</div>`;}
+}
+function renderAIResult(text){
+  const sec=document.getElementById('ai-analysis-section');if(!sec)return;
+  const lines=text.trim().split('\n').filter(l=>l.trim());
+  const sColors={P0:'#ff4757',P1:'#ff6b35',P2:'#ffc107',P3:'#888'};
+  let html='';
+  lines.forEach(line=>{
+    const m=line.match(/^\[(P[0-3])\]\s*(.+?)\s*\|\s*(.+?)(\s*\|\s*(.+))?$/);
+    if(m){
+      const[,p,type,desc,,suggest]=m;const color=sColors[p]||'#888';
+      html+=`<div style="border-left:3px solid ${color};padding:6px 8px;margin-bottom:6px;background:rgba(255,255,255,.03);border-radius:0 5px 5px 0">
+        <div><span style="background:${color}33;color:${color};padding:1px 5px;border-radius:3px;font-size:9px;font-weight:bold">${p}</span><span style="color:#ddd;font-size:11px;margin-left:5px">${type}</span></div>
+        <div style="color:#bbb;font-size:11px;margin-top:3px">${desc}</div>
+        ${suggest?`<div style="color:#666;font-size:10px;margin-top:2px">→ ${suggest}</div>`:''}
+      </div>`;
+    }else{html+=`<div style="color:#888;font-size:11px;padding:4px 0;border-left:2px solid #333;padding-left:7px;margin-bottom:4px">${line}</div>`;}
+  });
+  sec.innerHTML=html||'<div style="color:#888;font-size:11px">未发现明显UI问题</div>';
+}
+
+// ====== AI REGION CLASSIFICATION ======
+const AI_REGION_PROMPT=`你是游戏UI质量检查工程师。对比以下两张区域截图：
+第一张是设计稿局部，第二张是线上截图同一位置。
+
+请从以下标签中选择最匹配的问题类型（只选1个）：
+位置偏移类：水平偏移、垂直偏移、整体偏移、间距偏差
+尺寸差异类：元素偏大、元素偏小、宽度不符、高度不符
+颜色差异类：颜色偏差、亮度不符、饱和度偏差、透明度差异
+内容差异类：文字差异、内容缺失、多余内容、图片差异
+样式差异类：边框差异、圆角差异、阴影差异、背景差异
+
+严格按JSON格式回答（不要输出其他内容）：
+{"tag":"标签名","severity":"P0或P1或P2或P3","desc":"简短描述"}
+如果没有明显问题：{"tag":"","severity":"P3","desc":"无明显差异"}`;
+
+function cropRegionBase64(imgEl, reg, canvasW, canvasH) {
+  const margin=0.1;
+  const mx=Math.floor(reg.w*margin), my=Math.floor(reg.h*margin);
+  const cx=Math.max(0,reg.x-mx), cy=Math.max(0,reg.y-my);
+  const cw=Math.min(canvasW-cx, reg.w+mx*2), ch=Math.min(canvasH-cy, reg.h+my*2);
+  const src=document.createElement('canvas'); src.width=canvasW; src.height=canvasH;
+  src.getContext('2d').drawImage(imgEl,0,0,canvasW,canvasH);
+  const crop=document.createElement('canvas'); crop.width=cw; crop.height=ch;
+  crop.getContext('2d').drawImage(src,cx,cy,cw,ch,0,0,cw,ch);
+  return crop.toDataURL('image/jpeg',0.85).split(',')[1];
+}
+
+async function classifyRegionWithAI(reg, canvasW, canvasH) {
+  const b64Ps=cropRegionBase64(psImg, reg, canvasW, canvasH);
+  const b64Game=cropRegionBase64(gameImg, reg, canvasW, canvasH);
+  const cfg=aiConfig;
+  const headers={'Content-Type':'application/json'};
+  if(cfg.apiKey) headers['Authorization']='Bearer '+cfg.apiKey;
+  let body, result;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),15000);
+  try{
+    if(cfg.type==='ollama'){
+      body=JSON.stringify({model:cfg.model,prompt:AI_REGION_PROMPT,images:[b64Ps,b64Game],stream:false,options:{temperature:0.1}});
+      const res=await fetch(cfg.url+'/api/generate',{method:'POST',headers,body,signal:controller.signal});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      result=(await res.json()).response;
+    }else{
+      body=JSON.stringify({model:cfg.model,messages:[{role:'user',content:[
+        {type:'text',text:AI_REGION_PROMPT},
+        {type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64Ps}},
+        {type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64Game}}
+      ]}],max_tokens:200,temperature:0.1});
+      const res=await fetch(cfg.url+'/v1/chat/completions',{method:'POST',headers,body,signal:controller.signal});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      result=(await res.json()).choices?.[0]?.message?.content;
+    }
+  }finally{clearTimeout(timeout);}
+  // Parse JSON from AI response
+  if(!result) return null;
+  const jsonMatch=result.match(/\{[^}]+\}/);
+  if(!jsonMatch) return null;
+  try{ return JSON.parse(jsonMatch[0]); }catch(e){ return null; }
+}
+
+function tagToCls(tag){
+  const map={};
+  QA_TAGS.forEach(cat=>cat.tags.forEach(t=>{map[t]=cat.cls;}));
+  return map[tag]||'cat-text';
+}
+
+async function aiClassifyRegions(regions, canvasW, canvasH, onProgress){
+  const maxRegions=8, concurrency=3;
+  const toProcess=regions.slice(0,maxRegions);
+  const sMap={P0:{label:'P0',desc:'阻断',bg:'#ff475733',color:'#ff4757'},P1:{label:'P1',desc:'严重',bg:'#ff6b3533',color:'#ff6b35'},P2:{label:'P2',desc:'一般',bg:'#ffc10733',color:'#ffc107'},P3:{label:'P3',desc:'参考',bg:'#55555533',color:'#888'}};
+  let done=0;
+  const process=async(reg)=>{
+    try{
+      const ai=await classifyRegionWithAI(reg, canvasW, canvasH);
+      if(ai && ai.tag){
+        reg.analysis.issue.label=ai.tag;
+        reg.analysis.issue.cls=tagToCls(ai.tag);
+        reg.analysis.severity=sMap[ai.severity]||sMap['P2'];
+        reg.analysis.aiDesc=ai.desc||'';
+      }
+    }catch(e){/* keep algorithm result on failure */}
+    done++;
+    if(onProgress) onProgress(done, toProcess.length);
+  };
+  // Concurrent execution with limit
+  const queue=[...toProcess];
+  const workers=[];
+  for(let i=0;i<Math.min(concurrency,queue.length);i++){
+    workers.push((async()=>{
+      while(queue.length){
+        const reg=queue.shift();
+        if(reg) await process(reg);
+      }
+    })());
+  }
+  await Promise.all(workers);
+}
+
+// ====== CLEAR ======
+function clearAll() {
+  if(!confirm('确认清空所有内容？')) return;
+  clearImage('game',null); clearImage('ps',null);
+  annos=[]; history=[]; redoHistory=[];
+  gridAnnos=[]; gridHistory=[]; gridRedoHistory=[];
+  canvasLabels=[]; renderCanvasLabels();
+  if(markCtx) markCtx.clearRect(0,0,markCanvas.width,markCanvas.height);
+  if(annoCtx) annoCtx.clearRect(0,0,annoCanvas.width,annoCanvas.height);
+  if(clickCtx) clickCtx.clearRect(0,0,clickCanvas.width,clickCanvas.height);
+  reportData=null; isActive=false; isComparing=false; isOutline=false; isFindiff=false; isVSplit=false;
+  currentMode='outline';
+  panelCache={};
+  layers.style.display='none';
+  splitCanvas.style.display='none';
+  document.getElementById('grid-container').classList.remove('active');
+  const startBtn=document.getElementById('btn-start-compare');
+  if(startBtn){ startBtn.textContent='▶ 开始对比'; startBtn.classList.remove('active','cta-ready'); startBtn.disabled=true; }
+  ['mode-compare','mode-outline','mode-findiff'].forEach(id=>{
+    const el=document.getElementById(id); if(el){ el.disabled=true; el.classList.remove('active'); }
+  });
+  document.getElementById('sensitivity-pills').style.display='none';
+  labelCounter=0;
+  isDiagMode=false;
+  const autoDiagBtn=document.getElementById('btn-auto-diag');
+  if(autoDiagBtn){ autoDiagBtn.classList.remove('active'); autoDiagBtn.textContent='🔍 一键诊断'; }
+  activeTool=null; renderPropPanel();
+  document.querySelectorAll('.sb-btn').forEach(b=>b.classList.remove('active'));
+  updateEraserLabels();
+  updateUndoRedo();
+  checkGuide();
+}
+
+// ====== ZOOM ======
+function canvasZoom(delta) {
+  const oldZoom=zoomLevel;
+  zoomLevel=Math.max(0.2,Math.min(4,zoomLevel*delta));
+  const ratio=zoomLevel/oldZoom;
+  if(ratio===1) return;
+  // Scale annotations around viewport center
+  const cx=viewport.clientWidth/2, cy=viewport.clientHeight/2;
+  annos.forEach(a=>{
+    if(a.type==='text'){
+      a.x=cx+(a.x-cx)*ratio; a.y=cy+(a.y-cy)*ratio;
+      a.fontSize=Math.round((a.fontSize||20)*ratio);
+    } else if(a.type==='brush'){
+      if(a.pts) a.pts.forEach(p=>{ p.x=cx+(p.x-cx)*ratio; p.y=cy+(p.y-cy)*ratio; });
+      a.lw=(a.lw||2)*ratio;
+    } else {
+      a.x1=cx+(a.x1-cx)*ratio; a.y1=cy+(a.y1-cy)*ratio;
+      a.x2=cx+(a.x2-cx)*ratio; a.y2=cy+(a.y2-cy)*ratio;
+      a.lw=(a.lw||2)*ratio;
+    }
+  });
+  // Scale canvas labels
+  canvasLabels.forEach(lb=>{
+    lb.x=cx+(lb.x-cx)*ratio; lb.y=cy+(lb.y-cy)*ratio;
+    lb.tx=cx+(lb.tx-cx)*ratio; lb.ty=cy+(lb.ty-cy)*ratio;
+    if(lb.sx!=null){ lb.sx=cx+(lb.sx-cx)*ratio; lb.sy=cy+(lb.sy-cy)*ratio; }
+  });
+  syncCanvasSize();
+  renderCanvasLabels();
+}
+function canvasZoomReset() { zoomLevel=0.8; syncCanvasSize(); }
+viewport.addEventListener('wheel', e=>{
+  if(e.ctrlKey){e.preventDefault(); canvasZoom(e.deltaY<0?1.1:0.9);}
+},{passive:false});
+
+// ====== QA TAG LIBRARY ======
+function renderQAPanel() {
+  const container=document.getElementById('qa-scroll'); if(!container) return;
+  const dis=isActive?'':'disabled';
+  let html='';
+  QA_TAGS.forEach(cat=>{
+    html+=`<div class="qa-category">
+      <div class="qa-cat-label">${cat.cat}</div>
+      <div class="qa-tags-row">`;
+    cat.tags.forEach(tag=>{
+      html+=`<span class="qa-tag ${cat.cls} ${dis}" draggable="${isActive}" data-tag="${tag}" data-cls="${cat.cls}"
+        ondragstart="onTagDragStart(event)">${tag}</span>`;
+    });
+    html+='</div></div>';
+  });
+  container.innerHTML=html;
+}
+function toggleQAPanel(){
+  const scroll=document.getElementById('qa-scroll');
+  const btn=document.querySelector('.qa-toggle');
+  if(!scroll||!btn) return;
+  const isHidden=scroll.style.display==='none';
+  scroll.style.display=isHidden?'':'none';
+  btn.textContent=isHidden?'收起':'展开';
+}
+function updateQATagsState(){
+  document.querySelectorAll('.qa-tag').forEach(el=>{
+    if(isActive){ el.classList.remove('disabled'); el.draggable=true; }
+    else{ el.classList.add('disabled'); el.draggable=false; }
+  });
+}
+let dragTagData=null;
+function onTagDragStart(e){
+  dragTagData={tag:e.target.dataset.tag, cls:e.target.dataset.cls};
+  e.dataTransfer.effectAllowed='copy';
+}
+// Viewport: accept dropped tags or image files
+viewport.addEventListener('dragover',e=>{
+  e.preventDefault();
+  // If dragging files, highlight upload zone based on cursor position
+  if(e.dataTransfer.types.includes('Files')){
+    e.dataTransfer.dropEffect='copy';
+    document.querySelectorAll('.vp-upload-zone.drag-over').forEach(el=>el.classList.remove('drag-over'));
+    const vzPS=document.getElementById('vz-ps'), vzGame=document.getElementById('vz-game');
+    if(vzPS&&vzGame){
+      const mid=viewport.getBoundingClientRect().top+viewport.clientHeight/2;
+      const vz=e.clientY<mid?vzPS:vzGame;
+      vz.classList.add('drag-over');
+    }
+  } else {
+    e.dataTransfer.dropEffect='copy';
+  }
+});
+viewport.addEventListener('dragleave',e=>{
+  // Clean up drag-over when leaving viewport
+  if(!viewport.contains(e.relatedTarget)){
+    document.querySelectorAll('.vp-upload-zone.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  }
+});
+viewport.addEventListener('drop',e=>{
+  e.preventDefault();
+  // Check for image file drops first
+  document.querySelectorAll('.vp-upload-zone.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  const files=e.dataTransfer.files;
+  if(files&&files.length>0&&files[0].type.startsWith('image/')){
+    // Determine slot: if one is empty auto-fill it; otherwise use cursor position (top=ps, bottom=game)
+    let type;
+    if(!gameImg&&psImg) type='game';
+    else if(!psImg&&gameImg) type='ps';
+    else if(!gameImg&&!psImg){
+      const mid=viewport.getBoundingClientRect().top+viewport.clientHeight/2;
+      type=e.clientY<mid?'ps':'game';
+    } else { type=pasteTarget||'game'; }
+    loadImageFile(files[0],type);
+    return;
+  }
+  if(!dragTagData) return;
+  const r=viewport.getBoundingClientRect();
+  const x=e.clientX-r.left, y=e.clientY-r.top;
+  addCanvasLabel(dragTagData.tag, dragTagData.cls, x, y);
+  dragTagData=null;
+});
+
+// ====== CANVAS LABELS ======
+let labelCounter = 0;
+const TAG_CLS_COLORS={'cat-layout':'#007AFF','cat-size':'#00b894','cat-color':'#a29bfe','cat-text':'#ffc107','cat-asset':'#fd79a8'};
+function getImageBounds() {
+  const refImg=gameImg||psImg;
+  if(!refImg) return null;
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  const nw=refImg.naturalWidth, nh=refImg.naturalHeight;
+  let w=vw, h=vw*nh/nw;
+  if(h>vh){h=vh;w=vh*nw/nh;}
+  w=Math.floor(w*zoomLevel); h=Math.floor(h*zoomLevel);
+  const ox=(vw-w)/2, oy=(vh-h)/2;
+  return {left:ox, top:oy, right:ox+w, bottom:oy+h};
+}
+function placeLabelOutside(sMinX, sMinY, sMaxX, sMaxY) {
+  const ib=getImageBounds();
+  if(!ib) return {x:Math.max(10,sMinX), y:Math.max(6,sMinY-80)};
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  const labelW=140, labelH=30, gap=12;
+  const cx=(sMinX+sMaxX)/2, cy=(sMinY+sMaxY)/2;
+  const dTop=sMinY-ib.top, dBottom=ib.bottom-sMaxY;
+  const dLeft=sMinX-ib.left, dRight=ib.right-sMaxX;
+  const minD=Math.min(dTop,dBottom,dLeft,dRight);
+  let lx, ly;
+  if(minD===dTop){
+    lx=Math.max(10, Math.min(cx-labelW/2, vw-labelW-10));
+    ly=Math.max(6, ib.top-labelH-gap);
+  } else if(minD===dBottom){
+    lx=Math.max(10, Math.min(cx-labelW/2, vw-labelW-10));
+    ly=Math.min(vh-labelH-6, ib.bottom+gap);
+  } else if(minD===dLeft){
+    lx=Math.max(10, ib.left-labelW-gap);
+    ly=Math.max(6, Math.min(cy-labelH/2, vh-labelH-6));
+  } else {
+    lx=Math.min(vw-labelW-10, ib.right+gap);
+    ly=Math.max(6, Math.min(cy-labelH/2, vh-labelH-6));
+  }
+  return {x:lx, y:ly};
+}
+function addCanvasLabel(text, cls, tx, ty) {
+  saveHist();
+  const id='cl'+Date.now()+Math.random().toString(36).slice(2,6);
+  labelCounter++;
+  // Label placed outside the image area, nearest edge
+  const _lp=placeLabelOutside(tx, ty, tx, ty);
+  const labelX=_lp.x, labelY=_lp.y;
+  const tagColor=TAG_CLS_COLORS[cls]||labelProps.color;
+  const dc=deriveLabelColors(tagColor);
+  canvasLabels.push({id, text:'#'+labelCounter+' '+text, cls, x:labelX, y:labelY, tx:tx, ty:ty,
+    sx:tx, sy:ty, shape:'none', lw:2, color:tagColor,
+    bgColor:dc.bgColor, textColor:dc.textColor, lineColor:dc.lineColor});
+  renderCanvasLabels();
+}
+function renderCanvasLabels() {
+  // Remove old label DOM elements and target dots
+  document.querySelectorAll('.canvas-label,.cl-target-dot,.cl-shape-anchor').forEach(el=>el.remove());
+  canvasLabels.forEach(lb=>{
+    // Label element
+    const el=document.createElement('div');
+    el.className='canvas-label '+lb.cls;
+    el.id='cl-'+lb.id;
+    el.style.left=lb.x+'px';
+    el.style.top=lb.y+'px';
+    // Apply custom colors
+    if(lb.bgColor) el.style.background=lb.bgColor;
+    if(lb.textColor) el.style.color=lb.textColor;
+    if(lb.bgColor) el.style.borderColor=lb.textColor||'#007AFF';
+    // Selected highlight
+    if(lb.id===selectedLabelId) el.style.outline='2px solid #ffeb3b';
+    el.innerHTML=`<span class="cl-delete" onclick="removeCanvasLabel('${lb.id}')">✕</span>
+      <span class="cl-text" contenteditable="true" spellcheck="false"
+        onblur="updateCanvasLabelText('${lb.id}',this.textContent)">${lb.text}</span>`;
+    makeLabelDraggable(el, lb, 'label');
+    viewport.appendChild(el);
+    // Target dot only for shape='none' (shape labels use canvas-drawn shapes instead)
+    if(!lb.shape || lb.shape==='none'){
+      const dot=document.createElement('div');
+      dot.className='cl-target-dot';
+      dot.id='cld-'+lb.id;
+      dot.style.left=(lb.tx-5)+'px';
+      dot.style.top=(lb.ty-5)+'px';
+      if(lb.lineColor) { dot.style.borderColor=lb.lineColor.replace(/[0-9a-f]{2}$/i,'ff'); }
+      makeLabelDraggable(dot, lb, 'target');
+      viewport.appendChild(dot);
+    }
+    // Shape anchors for selected label with shapes
+    if(lb.id===selectedLabelId && lb.shape && lb.shape!=='none' && lb.sx!=null){
+      if(lb.shape==='rect'||lb.shape==='circle'){
+        [{px:'sx',py:'sy',cx:'nwse'},{px:'tx',py:'sy',cx:'nesw'},{px:'sx',py:'ty',cx:'nesw'},{px:'tx',py:'ty',cx:'nwse'}].forEach(h=>{
+          const a=document.createElement('div');
+          a.className='cl-shape-anchor';
+          a.style.left=(lb[h.px]-5)+'px'; a.style.top=(lb[h.py]-5)+'px';
+          a.style.cursor=h.cx+'-resize';
+          makeShapeAnchorDraggable(a, lb, h.px, h.py);
+          viewport.appendChild(a);
         });
+      } else if(lb.shape==='arrow'){
+        [{px:'sx',py:'sy'},{px:'tx',py:'ty'}].forEach(h=>{
+          const a=document.createElement('div');
+          a.className='cl-shape-anchor';
+          a.style.left=(lb[h.px]-5)+'px'; a.style.top=(lb[h.py]-5)+'px';
+          a.style.cursor='move'; a.style.borderRadius='50%';
+          makeShapeAnchorDraggable(a, lb, h.px, h.py);
+          viewport.appendChild(a);
+        });
+      }
     }
-
-    window.onmousedown = (e) => {
-        if(mode === 'none' || e.target.tagName !== 'CANVAS') return;
-        syncCanvasSize();
-        const p = getPos(e); startX = p.x; startY = p.y;
-        selectedAnno = checkHit(p);
-        if(selectedAnno && mode === 'anno') { isDragging = true; saveHist(); return; }
-        isMouseDown = true;
-        if(mode !== 'eraser') saveHist(); 
-        if(mode === 'anno' && aTgt === 'text') {
-            const s = prompt("内容:"); if(s) { annos.push({t:'text', txt:s, x1:p.x, y1:p.y, c:aCol}); drawAnnos(); }
-            isMouseDown = false;
-        } else if(mode === 'anno' && aTgt === 'arrow') {
-            annos.push({t:'arrow', x1:p.x, y1:p.y, x2:p.x, y2:p.y, c:aCol});
-        }
-    };
-
-    window.onmousemove = (e) => {
-        const p = getPos(e);
-        updateCursor(e); 
-        if(mode === 'eraser') { eraserCircle.style.display='block'; eraserCircle.style.left=e.clientX+'px'; eraserCircle.style.top=e.clientY+'px'; }
-        if(isDragging && selectedAnno) {
-            const dx = p.x - startX, dy = p.y - startY;
-            selectedAnno.x1 += dx; selectedAnno.y1 += dy;
-            if(selectedAnno.t === 'arrow') { selectedAnno.x2 += dx; selectedAnno.y2 += dy; }
-            startX = p.x; startY = p.y; drawAnnos(); return;
-        }
-        if(!isMouseDown) return;
-        if(mode === 'eraser') {
-            const ctx = (eTgt === 'mark') ? mCtx : mGCtx;
-            ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = 60; ctx.lineCap = 'round';
-            ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(p.x, p.y); ctx.stroke();
-            if(eTgt === 'ps') updatePSMask();
-            startX = p.x; startY = p.y;
-        } else if(mode === 'anno' && aTgt === 'arrow') {
-            annos[annos.length-1].x2 = p.x; annos[annos.length-1].y2 = p.y;
-            drawAnnos();
-        }
-    };
-
-    window.onmouseup = () => { isMouseDown = isDragging = false; selectedAnno = null; };
-
-    function setACol(c) { 
-        aCol = c; 
-        document.querySelectorAll('.color-dot').forEach(dot => dot.classList.remove('active'));
-        if(c === '#ffeb3b') document.getElementById('col-yellow').classList.add('active');
-        if(c === '#ff4757') document.getElementById('col-red').classList.add('active');
+  });
+  drawAnnos();
+}
+function drawLabelArrowsOnly() {
+  if(!annoCtx) return;
+  canvasLabels.forEach(lb=>{
+    const el=document.getElementById('cl-'+lb.id);
+    if(!el) return;
+    const lc=lb.lineColor||'#ffffff88';
+    const sh=lb.shape||'none';
+    annoCtx.save();
+    annoCtx.strokeStyle=lc;
+    annoCtx.lineWidth=lb.lw||2;
+    annoCtx.setLineDash([]);
+    // Draw shape if applicable
+    if(sh==='rect' && lb.sx!=null){
+      annoCtx.beginPath(); annoCtx.strokeRect(lb.sx,lb.sy,lb.tx-lb.sx,lb.ty-lb.sy);
+    } else if(sh==='circle' && lb.sx!=null){
+      const cx=(lb.sx+lb.tx)/2, cy=(lb.sy+lb.ty)/2;
+      const rx=Math.abs(lb.tx-lb.sx)/2, ry=Math.abs(lb.ty-lb.sy)/2;
+      annoCtx.beginPath(); annoCtx.ellipse(cx,cy,rx||1,ry||1,0,0,Math.PI*2); annoCtx.stroke();
+    } else if(sh==='arrow' && lb.sx!=null){
+      drawArrow(annoCtx,lb.sx,lb.sy,lb.tx,lb.ty,lb.lw||2);
     }
-
-    document.getElementById('btn-eraser').onclick = () => { mode=(mode==='eraser'?'none':'eraser'); updateUI(); updateCursor(); };
-    document.getElementById('e-m').onclick = function(){ eTgt='mark'; mode='eraser'; updateUI(); updateCursor(); this.classList.add('selected'); document.getElementById('e-p').classList.remove('selected'); };
-    document.getElementById('e-p').onclick = function(){ eTgt='ps'; mode='eraser'; updateUI(); updateCursor(); this.classList.add('selected'); document.getElementById('e-m').classList.remove('selected'); };
-    document.getElementById('btn-anno').onclick = () => { mode=(mode==='anno'?'none':'anno'); updateUI(); updateCursor(); };
-    document.getElementById('a-a').onclick = function(){ aTgt='arrow'; mode='anno'; updateUI(); updateCursor(); this.classList.add('selected'); document.getElementById('a-t').classList.remove('selected'); };
-    document.getElementById('a-t').onclick = function(){ aTgt='text'; mode='anno'; updateUI(); updateCursor(); this.classList.add('selected'); document.getElementById('a-a').classList.remove('selected'); };
-    
-    function updateUI() {
-        document.getElementById('g-eraser').classList.toggle('active', mode==='eraser');
-        document.getElementById('g-anno').classList.toggle('active', mode==='anno');
-        aCan.style.pointerEvents = mode==='none'?'none':'auto';
-        if(mode!=='eraser') eraserCircle.style.display='none';
+    // Draw connector line from shape/target to label
+    let fromX, fromY;
+    if((sh==='rect'||sh==='circle') && lb.sx!=null){
+      const sMinX=Math.min(lb.sx,lb.tx), sMaxX=Math.max(lb.sx,lb.tx);
+      const sMinY=Math.min(lb.sy,lb.ty), sMaxY=Math.max(lb.sy,lb.ty);
+      const sMidX=(sMinX+sMaxX)/2, sMidY=(sMinY+sMaxY)/2;
+      const lblCX=lb.x+el.offsetWidth/2, lblCY=lb.y+el.offsetHeight/2;
+      const dx=Math.abs(lblCX-sMidX), dy=Math.abs(lblCY-sMidY);
+      if(dy>dx){ fromX=sMidX; fromY=lblCY<sMidY?sMinY:sMaxY; }
+      else { fromY=sMidY; fromX=lblCX<sMidX?sMinX:sMaxX; }
+    } else if(sh==='arrow' && lb.sx!=null){
+      fromX=lb.sx; fromY=lb.sy;
+    } else {
+      fromX=lb.tx; fromY=lb.ty;
     }
+    const toX=lb.x;
+    const toY=lb.y+el.offsetHeight/2;
+    const dist=Math.sqrt((toX-fromX)**2+(toY-fromY)**2);
+    if(dist>5){
+      annoCtx.strokeStyle=lc;
+      annoCtx.lineWidth=Math.max(1,(lb.lw||2)*0.75);
+      annoCtx.setLineDash([4,3]);
+      annoCtx.beginPath(); annoCtx.moveTo(fromX,fromY); annoCtx.lineTo(toX,toY); annoCtx.stroke();
+      annoCtx.setLineDash([]);
+    }
+    if(sh==='none'){
+      const angle=Math.atan2(fromY-toY,fromX-toX);
+      const hl=8;
+      annoCtx.fillStyle=lc.length>7?lc.slice(0,7)+'cc':lc;
+      annoCtx.beginPath();
+      annoCtx.moveTo(fromX,fromY);
+      annoCtx.lineTo(fromX-hl*Math.cos(angle-0.4),fromY-hl*Math.sin(angle-0.4));
+      annoCtx.lineTo(fromX-hl*Math.cos(angle+0.4),fromY-hl*Math.sin(angle+0.4));
+      annoCtx.closePath();
+      annoCtx.fill();
+    }
+    annoCtx.restore();
+  });
+}
+function removeCanvasLabel(id){
+  canvasLabels=canvasLabels.filter(l=>l.id!==id);
+  document.getElementById('cl-'+id)?.remove();
+  document.getElementById('cld-'+id)?.remove();
+  if(selectedLabelId===id) selectedLabelId=null;
+  renumberLabels();
+  renderCanvasLabels();
+  renderPropPanel();
+}
+function renumberLabels(){
+  canvasLabels.forEach((lb,i)=>{
+    const num=i+1;
+    // Replace existing #N prefix or add one
+    lb.text=lb.text.replace(/^#\d+\s*/,'');
+    lb.text='#'+num+' '+lb.text;
+  });
+  labelCounter=canvasLabels.length;
+}
+function updateCanvasLabelText(id,text){
+  const lb=canvasLabels.find(l=>l.id===id); if(lb) lb.text=text.trim()||lb.text;
+}
+function makeLabelDraggable(el, lb, mode){
+  let startX,startY,startLx,startLy,dragging=false;
+  el.addEventListener('mousedown',e=>{
+    if(e.target.classList.contains('cl-delete')||e.target.classList.contains('cl-text')) return;
+    e.preventDefault(); e.stopPropagation(); dragging=true;
+    startX=e.clientX; startY=e.clientY;
+    if(mode==='label'){ startLx=lb.x; startLy=lb.y; }
+    else{ startLx=lb.tx; startLy=lb.ty; }
+    // Select this label and show property panel
+    if(selectedLabelId!==lb.id){
+      selectedLabelId=lb.id;
+      labelProps.color=lb.color||labelProps.color;
+      labelProps.shape=lb.shape||'none';
+      labelProps.lw=lb.lw||2;
+      renderPropPanel();
+      // Update selection highlight without full re-render (avoid DOM rebuild during drag)
+      document.querySelectorAll('.canvas-label').forEach(el2=>el2.style.outline='');
+      el.style.outline='2px solid #ffeb3b';
+    }
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging) return;
+    const dx=e.clientX-startX, dy=e.clientY-startY;
+    if(mode==='label'){
+      lb.x=startLx+dx; lb.y=startLy+dy;
+      el.style.left=lb.x+'px'; el.style.top=lb.y+'px';
+    } else {
+      lb.tx=startLx+dx; lb.ty=startLy+dy;
+      el.style.left=(lb.tx-5)+'px'; el.style.top=(lb.ty-5)+'px';
+    }
+    drawAnnos();
+  });
+  document.addEventListener('mouseup',()=>{ dragging=false; });
+}
+function makeShapeAnchorDraggable(el, lb, propX, propY){
+  let startMX,startMY,startVX,startVY,dragging=false;
+  el.addEventListener('mousedown',e=>{
+    e.preventDefault(); e.stopPropagation(); dragging=true;
+    startMX=e.clientX; startMY=e.clientY;
+    startVX=lb[propX]; startVY=lb[propY];
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging) return;
+    lb[propX]=startVX+(e.clientX-startMX);
+    lb[propY]=startVY+(e.clientY-startMY);
+    el.style.left=(lb[propX]-5)+'px'; el.style.top=(lb[propY]-5)+'px';
+    // Also reposition other anchors
+    document.querySelectorAll('.cl-shape-anchor').forEach(a=>a!==el&&a.remove());
+    drawAnnos();
+  });
+  document.addEventListener('mouseup',()=>{
+    if(dragging){ dragging=false; renderCanvasLabels(); }
+  });
+}
 
-    function updatePSMask() { const url = mGen.toDataURL(); psImg.style.maskImage = psImg.style.webkitMaskImage = `url(${url})`; psImg.style.maskSize = "contain"; psImg.style.maskPosition = "center"; psImg.style.maskRepeat = "no-repeat"; }
-    function saveHist() { history.push({m:mCan.toDataURL(), k:mGen.toDataURL(), a:JSON.stringify(annos)}); if(history.length>30) history.shift(); }
-    
-    document.getElementById('undo-btn').onclick = () => {
-        if(!history.length) return; 
-        const last = history.pop();
-        const im=new Image(), ik=new Image();
-        im.onload=()=>{ mCtx.clearRect(0,0,mCan.width,mCan.height); mCtx.drawImage(im,0,0); };
-        ik.onload=()=>{ mGCtx.clearRect(0,0,mGen.width,mGen.height); mGCtx.drawImage(ik,0,0); updatePSMask(); };
-        im.src=last.m; ik.src=last.k; annos=JSON.parse(last.a); drawAnnos();
-    };
+// Enable diagnostic auto-labels when report is generated
+function autoPlaceReportLabels(regions) {
+  if(!regions||!regions.length) return;
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  const refImg=gameImg||psImg; if(!refImg) return;
+  const nw=refImg.naturalWidth, nh=refImg.naturalHeight;
+  // Must include zoomLevel to match actual image display position
+  let fitW=vw, fitH=vw*nh/nw;
+  if(fitH>vh){fitH=vh;fitW=vh*nw/nh;}
+  fitW=Math.floor(fitW*zoomLevel); fitH=Math.floor(fitH*zoomLevel);
+  const scale=fitW/nw;
+  const ox=(vw-fitW)/2, oy=(vh-fitH)/2;
+  regions.slice(0,8).forEach((reg,i)=>{
+    const tx=ox+reg.x*scale+reg.w*scale/2;
+    const ty=oy+reg.y*scale+reg.h*scale/2;
+    const a=reg.analysis;
+    const cls=a.issue.cls||'cat-text';
+    const id='cl'+Date.now()+Math.random().toString(36).slice(2,6);
+    labelCounter++;
+    // Place label outside image area, nearest edge, staggered vertically
+    const _lp=placeLabelOutside(tx, ty, tx, ty);
+    const lx=_lp.x;
+    const ly=_lp.y - i*5;
+    canvasLabels.push({id, text:'#'+labelCounter+' ['+a.severity.label+'] '+a.issue.label, cls, x:lx, y:ly, tx:tx, ty:ty, _auto:true});
+  });
+  renderCanvasLabels();
+}
 
-    document.getElementById('reset-initial-btn').onclick = () => {
-        annos = []; history = []; mCtx.clearRect(0,0,mCan.width,mCan.height); aCtx.clearRect(0,0,aCan.width,aCan.height);
-        mGCtx.globalCompositeOperation = 'source-over'; mGCtx.fillStyle = "white"; mGCtx.fillRect(0,0,mGen.width,mGen.height);
-        updatePSMask(); mCan.style.display = 'none'; isComparing = false; psImg.style.mixBlendMode = 'normal'; mode = 'none'; updateUI(); updateCursor();
-        document.getElementById('ai-run-btn').classList.remove('active'); document.getElementById('ai-run-btn').innerText = "对比不同";
-        document.getElementById('mode-btn').classList.remove('active'); document.getElementById('mode-btn').innerText = "开始找茬";
-    };
+// ====== GRID VIEW (simplified/legacy) ======
+function updateGrid(){ /* no-op: grid view removed */ }
+function cachePanel(mode){ /* no-op: panel cache no longer needed for display */ }
+function refreshGridPanels(){ if(isActive) renderCurrentMode(); }
 
-    document.getElementById('ai-run-btn').onclick = function() {
-        if(!gameImg.src || !psImg.src || (gameImg.naturalWidth === 0)) return alert("请上传图片");
-        isComparing = !isComparing; 
-        this.classList.toggle('active', isComparing); 
-        this.innerText = isComparing ? "取消对比" : "对比不同";
-        if(isComparing) runAnalysis(); else mCan.style.display = 'none';
-    };
-
-    document.getElementById('mode-btn').onclick = function(){ 
-        if(!gameImg.src || !psImg.src) return;
-        const isDiff = psImg.style.mixBlendMode === 'difference'; 
-        psImg.style.mixBlendMode = !isDiff ? 'difference' : 'normal'; 
-        this.classList.toggle('active', !isDiff); 
-        this.innerText = !isDiff ? "取消找茬" : "开始找茬"; 
-    };
-
-    // 修复：针对导出逻辑，增加对设计稿遮罩（橡皮擦）的支持
-    document.getElementById('export-btn').onclick = () => {
-        if (!gameImg.naturalWidth && !psImg.naturalWidth) return;
-        
-        const out = document.createElement('canvas'); 
-        const w = gameImg.naturalWidth || psImg.naturalWidth;
-        const h = gameImg.naturalHeight || psImg.naturalHeight;
-        out.width = w; out.height = h; 
-        const octx = out.getContext('2d');
-
-        // 1. 绘制底层（线上截图）
-        if(gameImg.src && gameImg.naturalWidth > 0) {
-            octx.drawImage(gameImg, 0, 0, w, h);
-        }
-
-        // 2. 绘制设计稿层（带橡皮擦遮罩效果）
-        if(psImg.src && psImg.naturalWidth > 0) {
-            octx.save();
-            
-            // 创建一个临时画布来合成“被擦除后的设计稿”
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = w; tempCanvas.height = h;
-            const tctx = tempCanvas.getContext('2d');
-            
-            // A. 先画完整的设计稿
-            tctx.drawImage(psImg, 0, 0, w, h);
-            
-            // B. 使用 mGen (遮罩画布) 进行擦除
-            // destination-in 表示只保留与 mGen 像素重叠的部分
-            tctx.globalCompositeOperation = 'destination-in';
-            tctx.drawImage(mGen, 0, 0, w, h);
-            
-            // C. 将处理好的设计稿应用透明度和混合模式后画到主输出
-            octx.globalAlpha = psSlider.value;
-            if(psImg.style.mixBlendMode === 'difference') {
-                octx.globalCompositeOperation = 'difference';
-            }
-            octx.drawImage(tempCanvas, 0, 0, w, h);
-            
-            octx.restore();
-        }
-
-        // 3. 绘制红点对比层和标注层
-        octx.drawImage(mCan, 0, 0);
-        octx.drawImage(aCan, 0, 0);
-
-        const a = document.createElement('a'); 
-        a.download = `UI_Report_${Date.now()}.png`; 
-        a.href = out.toDataURL('image/png'); 
-        a.click();
-    };
-
-    psSlider.oninput = (e) => { psImg.style.opacity = e.target.value; };
-    document.getElementById('threshold-slider').oninput = () => { if(isComparing) runAnalysis(); };
+// ====== GRID ZOOM & PAN ======
+function applyGridTransform() {
+  const gi=document.getElementById('grid-inner');
+  if(gi) gi.style.transform=`translate(${gridPanX}px,${gridPanY}px) scale(${gridZoom})`;
+}
+function onGridWheel(e) {
+  e.preventDefault();
+  const gc=document.getElementById('grid-container');
+  const r=gc.getBoundingClientRect();
+  const cx=e.clientX-r.left, cy=e.clientY-r.top;
+  const delta=e.deltaY<0?1.12:0.9;
+  const newZoom=Math.max(0.5,Math.min(6,gridZoom*delta));
+  gridPanX=cx-(cx-gridPanX)*(newZoom/gridZoom);
+  gridPanY=cy-(cy-gridPanY)*(newZoom/gridZoom);
+  gridZoom=newZoom;
+  applyGridTransform();
+}
 </script>
 </body>
 </html>
