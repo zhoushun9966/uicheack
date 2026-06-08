@@ -239,7 +239,7 @@ function _buildOutlineCanvas(psOff, gameOff, w, h) {
     const idx = i * 4;
     const g = edges1[i] > 0, d = edges2[i] > 0;
     let r = 0, gv = 0, a = 0;
-    if (g && d)  { r = 255; gv = 255; a = 255; }  // 重叠 → 黄
+    if (g && d)  { r = 0; gv = 0; a = 0; }         // 重叠 → 不显示
     else if (g)  { r = edges1[i]; a = 255; }        // 仅游戏 → 红
     else if (d)  { gv = edges2[i]; a = 255; }       // 仅设计 → 绿
     od[idx] = r; od[idx+1] = gv; od[idx+2] = 0; od[idx+3] = a;
