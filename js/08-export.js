@@ -204,11 +204,11 @@ function compositeAll(includeOverlay = true) {
 
 // ====== REPORT CARDS (问题报告) ======
 
-// 为问题报告卡片生成裁图区域的轮廓对比图（应用密度抑制+连通域过滤）
+// 为问题报告卡片生成裁图区域的轮廓对比图（与画板轮廓模式逻辑一致，直接 Sobel 输出）
 function _buildOutlineCanvas(psOff, gameOff, w, h) {
   if (!psImg || !gameImg || w < 1 || h < 1) return null;
 
-  // object-fit:contain 绘制到临时 canvas，与主报告图保持一致，不拉伸
+  // object-fit:contain 绘制到临时 canvas，保持比例不拉伸
   const mkContain = (img, off) => {
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     const cctx = c.getContext('2d');
@@ -223,84 +223,29 @@ function _buildOutlineCanvas(psOff, gameOff, w, h) {
   const gameCrop = mkContain(gameImg, gameOff);
 
   const edges1 = detectEdges(gameCrop, w, h);
-  const edges2 = detectEdges(psCrop, w, h);
+  const edges2 = detectEdges(psCrop,   w, h);
 
-  // 密度抑制：RADIUS 随裁图尺寸自适应
-  const RADIUS = Math.max(3, Math.min(7, Math.round(Math.min(w, h) * 0.04)));
-  const DENSITY_THRESH = 0.28;
-  const stride = w + 1;
-  const int1 = new Float32Array((w+1)*(h+1));
-  const int2 = new Float32Array((w+1)*(h+1));
-  for (let cy = 0; cy < h; cy++) {
-    for (let cx = 0; cx < w; cx++) {
-      const v1=edges1[cy*w+cx]>0?1:0, v2=edges2[cy*w+cx]>0?1:0;
-      const ii=(cy+1)*stride+(cx+1);
-      int1[ii]=v1+int1[cy*stride+(cx+1)]+int1[(cy+1)*stride+cx]-int1[cy*stride+cx];
-      int2[ii]=v2+int2[cy*stride+(cx+1)]+int2[(cy+1)*stride+cx]-int2[cy*stride+cx];
-    }
-  }
-  function bSum(integral,x1,y1,x2,y2) {
-    x1=Math.max(0,x1);y1=Math.max(0,y1);x2=Math.min(w-1,x2);y2=Math.min(h-1,y2);
-    return integral[(y2+1)*stride+(x2+1)]-integral[y1*stride+(x2+1)]
-          -integral[(y2+1)*stride+x1]+integral[y1*stride+x1];
-  }
-  const suppress=new Uint8Array(w*h);
-  for (let cy=0; cy<h; cy++) {
-    const y1=Math.max(0,cy-RADIUS), y2=Math.min(h-1,cy+RADIUS);
-    for (let cx=0; cx<w; cx++) {
-      const x1=Math.max(0,cx-RADIUS), x2=Math.min(w-1,cx+RADIUS);
-      const area=(x2-x1+1)*(y2-y1+1);
-      if (bSum(int1,x1,y1,x2,y2)/area>DENSITY_THRESH && bSum(int2,x1,y1,x2,y2)/area>DENSITY_THRESH)
-        suppress[cy*w+cx]=1;
-    }
-  }
-  const onlyGame=new Uint8Array(w*h), onlyDesign=new Uint8Array(w*h), overlap=new Uint8Array(w*h);
-  for (let i=0; i<w*h; i++) {
-    if (suppress[i]) continue;
-    const g=edges1[i]>0, d=edges2[i]>0;
-    if (g&&d) overlap[i]=1; else if(g) onlyGame[i]=1; else if(d) onlyDesign[i]=1;
-  }
-  const MIN_COMP = Math.max(5, Math.round(w*h*0.0003));
-  const DX=[-1,0,1,-1,1,-1,0,1], DY=[-1,-1,-1,0,0,1,1,1];
-  function filterComp(map) {
-    const out=new Uint8Array(w*h), vis=new Uint8Array(w*h);
-    for (let i=0; i<w*h; i++) {
-      if (!map[i]||vis[i]) continue;
-      const comp=[i]; vis[i]=1; let head=0;
-      while (head<comp.length) {
-        const ci=comp[head++], cx=ci%w, cy=(ci/w)|0;
-        for (let k=0; k<8; k++) {
-          const nx=cx+DX[k], ny=cy+DY[k];
-          if (nx<0||nx>=w||ny<0||ny>=h) continue;
-          const ni=ny*w+nx;
-          if (map[ni]&&!vis[ni]) { vis[ni]=1; comp.push(ni); }
-        }
-      }
-      if (comp.length>=MIN_COMP) for (const ci of comp) out[ci]=1;
-    }
-    return out;
-  }
-  const filtGame=filterComp(onlyGame), filtDesign=filterComp(onlyDesign);
-
-  // 渲染：游戏截图 + 设计稿叠加（与编辑器内视图一致），再用独立 overlay canvas 合成彩色轮廓
-  const out=document.createElement('canvas'); out.width=w; out.height=h;
-  const octx=out.getContext('2d');
-  octx.drawImage(gameCrop,0,0);
+  // 渲染：游戏+设计稿叠加作背景，直接输出 Sobel 边缘（红/绿/黄，与画板一致）
+  const out = document.createElement('canvas'); out.width = w; out.height = h;
+  const octx = out.getContext('2d');
+  octx.drawImage(gameCrop, 0, 0);
   const psAlpha = +( document.getElementById('slider-ps')?.value ?? 0.5 );
-  if (psAlpha > 0) { octx.globalAlpha=psAlpha; octx.drawImage(psCrop,0,0); octx.globalAlpha=1; }
+  if (psAlpha > 0) { octx.globalAlpha = psAlpha; octx.drawImage(psCrop, 0, 0); octx.globalAlpha = 1; }
 
-  const overlayC=document.createElement('canvas'); overlayC.width=w; overlayC.height=h;
-  const overlayCtx=overlayC.getContext('2d');
-  const imgData=overlayCtx.createImageData(w,h); const od=imgData.data;
-  for (let i=0; i<w*h; i++) {
-    const idx=i*4; let r=0,gv=0,a=0;
-    if (overlap[i])        { r=200; gv=200; a=150; }
-    else if (filtGame[i])  { r=edges1[i]; a=220; }
-    else if (filtDesign[i]){ gv=edges2[i]; a=220; }
-    od[idx]=r; od[idx+1]=gv; od[idx+2]=0; od[idx+3]=a;
+  const overlayC = document.createElement('canvas'); overlayC.width = w; overlayC.height = h;
+  const overlayCtx = overlayC.getContext('2d');
+  const imgData = overlayCtx.createImageData(w, h); const od = imgData.data;
+  for (let i = 0; i < w * h; i++) {
+    const idx = i * 4;
+    const g = edges1[i] > 0, d = edges2[i] > 0;
+    let r = 0, gv = 0, a = 0;
+    if (g && d)  { r = 255; gv = 255; a = 255; }  // 重叠 → 黄
+    else if (g)  { r = edges1[i]; a = 255; }        // 仅游戏 → 红
+    else if (d)  { gv = edges2[i]; a = 255; }       // 仅设计 → 绿
+    od[idx] = r; od[idx+1] = gv; od[idx+2] = 0; od[idx+3] = a;
   }
-  overlayCtx.putImageData(imgData,0,0);
-  octx.drawImage(overlayC,0,0); // 合成到有背景的 canvas 上
+  overlayCtx.putImageData(imgData, 0, 0);
+  octx.drawImage(overlayC, 0, 0);
   return out;
 }
 
